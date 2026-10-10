@@ -1,0 +1,11 @@
+# Track only the mapping package and repository metadata files.
+/*
+!/.gitignore
+!/LICENSE
+!/src/
+
+/src/*
+!/src/yhand_mapping/
+
+# Python caches, virtual environments, and local credentials inside the mapping
+# package are excluded by src/yhand_mapping/.gitignore.
