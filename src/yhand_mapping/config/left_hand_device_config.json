@@ -1,0 +1,38 @@
+{
+  "hand": "left",
+  "pc_ip": "192.168.3.246",
+  "sn": "1Y2S2608005M",
+  "boards": [
+    {
+      "id": 101,
+      "ip": "192.168.3.106"
+    }
+  ],
+  "driver_node_name": "y_hand_left_wrist_angle_node",
+  "cmd_topic": "/yhand_left_cmd",
+  "feedback_topic": "/yhand_left_feedback",
+  "glove_topic": "/glove_joint_data_raw_skeleton",
+  "input_source": "mocap_tf",
+  "mocap_tf_topic": "/tf",
+  "mocap_hand_frame": "LeftHand",
+  "glove_side_code": 0.0,
+  "motor_position_offsets_deg": [
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+  ],
+  "alpha_scale": 1.0,
+  "beta_scale": 1.0,
+  "alpha_offset_deg": 0.0,
+  "beta_offset_deg": 0.0,
+  "alpha_limit_deg": 5.0,
+  "beta_min_deg": -30.0,
+  "beta_max_deg": 30.0,
+  "output_publish_rate_hz": 100.0,
+  "deadband_deg": 1.0,
+  "status_print_period_sec": 1.0,
+  "allow_single_chunk_fallback": true,
+  "fallback_chunk_index": -1,
+  "apply_timeout_sec": 6.0,
+  "controller_start_delay_sec": 1.5,
+  "zero_on_exit": true
+}

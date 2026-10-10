@@ -1,0 +1,14 @@
+# Local Python environments and generated caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+wandb/
+.DS_Store
+
+# Local credentials and environment settings.
+.env
+.env.*

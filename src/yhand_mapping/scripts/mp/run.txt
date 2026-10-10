@@ -1,0 +1,21 @@
+数据预处理：
+
+python preprocess_raw.py \
+  --collection left_collection \
+  --threshold 14
+
+训练:
+
+python train_forward.py \
+  --data preprocessed_raw.csv \
+  --out-dir runs/forward_raw \
+  --wandb \
+  --wandb-project mapping \
+  --wandb-run-name forward_raw
+
+python train_inverse.py \
+  --data preprocessed_raw.csv \
+  --out-dir runs/inverse_raw \
+  --wandb \
+  --wandb-project mapping \
+  --wandb-run-name inverse_raw

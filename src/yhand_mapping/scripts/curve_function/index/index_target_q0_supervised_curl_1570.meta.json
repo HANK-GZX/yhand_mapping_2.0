@@ -1,0 +1,90 @@
+{
+  "source": "/home/ubuntu/mapping/left_index_mlp_prev_m_target_q/left_index_mlp_prev_m_target_q_50_motor_renamed_q0_neg_plus_aug.csv",
+  "output": "/home/ubuntu/mapping/left_index_q0_curl_multihead/left_index_target_q0_supervised_curl_50_aug.csv",
+  "rows_source": 79200,
+  "rows_stable": 1584,
+  "group_col": "file",
+  "stable_key": "target_qm",
+  "stable_key_cols": [
+    "target_q_0",
+    "target_q_1",
+    "target_q_2",
+    "target_q_3",
+    "target_m_0",
+    "target_m_1",
+    "target_m_2",
+    "target_m_3",
+    "target_m_4"
+  ],
+  "motor_curl_source": {
+    "minus_target_m_0_percentile_range": [
+      -13.7882623672,
+      301.8585510254
+    ],
+    "target_m_1_percentile_range": [
+      -45.5946540833,
+      325.1502990723
+    ],
+    "minus_target_m_4_percentile_range": [
+      -19.9957275391,
+      346.2446899414
+    ],
+    "formula": "target_curl = clip((scale(-target_m_0) + scale(target_m_1) + scale(-target_m_4)) / 3, 0, 1)",
+    "zero_q_origin_formula": "target_curl = clip((raw_target_curl - raw_curl_at_q1_q2_q3_zero) / (1 - raw_curl_at_q1_q2_q3_zero), 0, 1)"
+  },
+  "q_calibration": {
+    "target_q_1_to_q1_cal": {
+      "source_percentile_range": [
+        -14.4299650192,
+        75.4347610474
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_2_to_q2_cal": {
+      "source_percentile_range": [
+        -0.3532714546,
+        87.0531005859
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_3_to_q3_cal": {
+      "source_percentile_range": [
+        -17.933506012,
+        30.4913578033
+      ],
+      "output_range": [
+        0.0,
+        50.0
+      ]
+    }
+  },
+  "linear_curl_fit": {
+    "formula": "curl = clip(bias + w1*q1_cal + w2*q2_cal + w3*q3_cal, 0, 1)",
+    "bias": -0.1716836380091173,
+    "weights": {
+      "q1_cal": 0.007117135150229546,
+      "q2_cal": 0.004298947670950334,
+      "q3_cal": 0.003632654562940229
+    },
+    "r2": 0.9986377676901762,
+    "raw_bias": -0.01636837025553419,
+    "raw_weights": {
+      "q1_cal": 0.006173706637932935,
+      "q2_cal": 0.0037290905978392738,
+      "q3_cal": 0.0031511195326701263
+    },
+    "raw_r2": 0.9986227989453894,
+    "q1_q2_q3_zero_calibrated": [
+      14.451686535665878,
+      0.36375415397938715,
+      18.516836805572467
+    ],
+    "raw_curl_at_q1_q2_q3_zero": 0.1325573411758663
+  }
+}

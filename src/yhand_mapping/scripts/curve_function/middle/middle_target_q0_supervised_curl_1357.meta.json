@@ -1,0 +1,79 @@
+{
+  "source": "/home/ubuntu/mapping/middle_mlp_prev_m_target_q/middle_mlp_prev_m_target_q_50.csv",
+  "output": "/home/ubuntu/mapping/middle_q0_curl_multihead/middle_target_q0_supervised_curl_1357.csv",
+  "rows_source": 67850,
+  "rows_stable": 1357,
+  "group_col": "file",
+  "motor_curl_source": {
+    "target_m_1_percentile_range": [
+      -43.2874526978,
+      329.9844360352
+    ],
+    "minus_target_m_2_percentile_range": [
+      -34.2826623917,
+      430.6222839355
+    ],
+    "formula": "target_curl = clip(0.5 * scale(target_m_1) + 0.5 * scale(-target_m_2), 0, 1)",
+    "zero_q_origin_formula": "target_curl = clip((raw_target_curl - raw_curl_at_zero_q) / (1 - raw_curl_at_zero_q), 0, 1)"
+  },
+  "q_calibration": {
+    "target_q_1_to_q1_cal": {
+      "source_percentile_range": [
+        -19.45552139278,
+        59.22483291628
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_2_to_q2_cal": {
+      "source_percentile_range": [
+        -0.23800348344,
+        109.65602416996
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_3_to_q3_cal": {
+      "source_percentile_range": [
+        -13.12130718232,
+        5.46012172702
+      ],
+      "output_range": [
+        0.0,
+        50.0
+      ]
+    }
+  },
+  "linear_curl_fit": {
+    "formula": "curl = clip(bias + w1*q1_cal + w2*q2_cal + w3*q3_cal, 0, 1)",
+    "bias": -0.21795824663645097,
+    "weights": {
+      "q1_cal": 0.005902048652546308,
+      "q2_cal": 0.006776892984731835,
+      "q3_cal": 0.002415622488151249
+    },
+    "r2": 0.9977943311281011,
+    "raw_bias": 0.00013999971339565865,
+    "raw_weights": {
+      "q1_cal": 0.004845176247809391,
+      "q2_cal": 0.00556336330934899,
+      "q3_cal": 0.0019830600173407877
+    },
+    "raw_r2": 0.9981740975175869,
+    "zero_q": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "q1_q2_q3_zero_calibrated": [
+      22.254563298891394,
+      0.19491790379326482,
+      35.30758384174599
+    ],
+    "raw_curl_at_q1_q2_q3_zero": 0.1790687381543276
+  }
+}

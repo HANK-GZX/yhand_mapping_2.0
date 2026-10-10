@@ -1,0 +1,90 @@
+{
+  "source": "/home/ubuntu/mapping/little_mlp_prev_m_target_q/little_mlp_prev_m_target_q_50.csv",
+  "output": "/home/ubuntu/mapping/little_q0_curl_multihead/little_target_q0_supervised_curl_1320.csv",
+  "rows_source": 66000,
+  "rows_stable": 1320,
+  "group_col": "file",
+  "motor_curl_source": {
+    "minus_target_m_0_percentile_range": [
+      -15.493943214429999,
+      409.25872802736
+    ],
+    "target_m_1_percentile_range": [
+      -43.6170501709,
+      322.7881469727
+    ],
+    "formula": "target_curl = clip(0.5 * scale(-target_m_0) + 0.5 * scale(target_m_1), 0, 1)",
+    "anchor_formula": "target_curl = clip((raw_target_curl - raw_curl_at_zero_q) / (raw_curl_at_one_q - raw_curl_at_zero_q), 0, 1)"
+  },
+  "q_calibration": {
+    "target_q_1_to_q1_cal": {
+      "source_percentile_range": [
+        -21.04627599721,
+        46.581143379195
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_2_to_q2_cal": {
+      "source_percentile_range": [
+        -0.32570431228,
+        112.35698890684999
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_3_to_q3_cal": {
+      "source_percentile_range": [
+        -12.492793178545,
+        23.261636924714995
+      ],
+      "output_range": [
+        0.0,
+        50.0
+      ]
+    }
+  },
+  "linear_curl_fit": {
+    "formula": "curl = clip(bias + w1*q1_cal + w2*q2_cal + w3*q3_cal, 0, 1)",
+    "bias": -0.23890366792708567,
+    "weights": {
+      "q1_cal": 0.006387136568468146,
+      "q2_cal": 0.006895343020003154,
+      "q3_cal": 0.00333215679040979
+    },
+    "r2": 0.9989211339378632,
+    "raw_bias": -0.002566815343529298,
+    "raw_weights": {
+      "q1_cal": 0.0048660254824521715,
+      "q2_cal": 0.005253201412856465,
+      "q3_cal": 0.002538596079768627
+    },
+    "raw_r2": 0.9985350715323089,
+    "zero_q": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "one_q": [
+      90.0,
+      90.0,
+      50.0
+    ],
+    "q1_q2_q3_zero_calibrated": [
+      28.008829217720237,
+      0.26014099652548284,
+      17.470273113660383
+    ],
+    "q1_q2_q3_one_calibrated": [
+      90.0,
+      72.14340690540955,
+      50.0
+    ],
+    "raw_curl_at_q1_q2_q3_zero": 0.17944140125286337,
+    "raw_curl_at_q1_q2_q3_one": 0.9412891291493738
+  }
+}

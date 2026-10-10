@@ -1,0 +1,116 @@
+{
+  "hand": "left",
+  "updated_at": "2026-10-10T14:34:29.807228",
+  "collection_mode": "per_finger",
+  "finger_counts": {
+    "thumb": 8798,
+    "index": 0,
+    "middle": 0,
+    "ring": 0,
+    "little": 0
+  },
+  "combo_counts": {
+    "index_deep_in": 0,
+    "index_deep_out": 0,
+    "index_shallow_in": 0,
+    "index_shallow_out": 0,
+    "index_ext_in": 0,
+    "index_ext_out": 0,
+    "middle_deep_in": 0,
+    "middle_deep_out": 0,
+    "middle_shallow_in": 0,
+    "middle_shallow_out": 0,
+    "middle_ext_in": 0,
+    "middle_ext_out": 0,
+    "ring_flex_in": 0,
+    "ring_flex_out": 0,
+    "ring_ext_in": 0,
+    "ring_ext_out": 0,
+    "little_flex_in": 0,
+    "little_flex_out": 0,
+    "little_ext_in": 0,
+    "little_ext_out": 0
+  },
+  "combo_axis_motors": {
+    "index_deep_in": [
+      15,
+      1
+    ],
+    "index_deep_out": [
+      15,
+      28
+    ],
+    "index_shallow_in": [
+      3,
+      1
+    ],
+    "index_shallow_out": [
+      3,
+      28
+    ],
+    "index_ext_in": [
+      25,
+      1
+    ],
+    "index_ext_out": [
+      25,
+      28
+    ],
+    "middle_deep_in": [
+      2,
+      9
+    ],
+    "middle_deep_out": [
+      2,
+      24
+    ],
+    "middle_shallow_in": [
+      16,
+      9
+    ],
+    "middle_shallow_out": [
+      16,
+      24
+    ],
+    "middle_ext_in": [
+      23,
+      9
+    ],
+    "middle_ext_out": [
+      23,
+      24
+    ],
+    "ring_flex_in": [
+      17,
+      22
+    ],
+    "ring_flex_out": [
+      17,
+      21
+    ],
+    "ring_ext_in": [
+      10,
+      22
+    ],
+    "ring_ext_out": [
+      10,
+      21
+    ],
+    "little_flex_in": [
+      13,
+      18
+    ],
+    "little_flex_out": [
+      13,
+      20
+    ],
+    "little_ext_in": [
+      11,
+      18
+    ],
+    "little_ext_out": [
+      11,
+      20
+    ]
+  }
+}

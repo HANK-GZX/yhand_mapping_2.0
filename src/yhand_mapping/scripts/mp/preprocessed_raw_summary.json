@@ -1,0 +1,33 @@
+{
+  "collection": "left_collection",
+  "threshold": 14.0,
+  "valid_count": 22448,
+  "invalid_count": 1622,
+  "by_finger": {
+    "index": {
+      "seen": 0,
+      "valid": 0,
+      "invalid": 0
+    },
+    "little": {
+      "seen": 0,
+      "valid": 0,
+      "invalid": 0
+    },
+    "middle": {
+      "seen": 0,
+      "valid": 0,
+      "invalid": 0
+    },
+    "ring": {
+      "seen": 0,
+      "valid": 0,
+      "invalid": 0
+    },
+    "thumb": {
+      "seen": 24070,
+      "valid": 22448,
+      "invalid": 1622
+    }
+  }
+}

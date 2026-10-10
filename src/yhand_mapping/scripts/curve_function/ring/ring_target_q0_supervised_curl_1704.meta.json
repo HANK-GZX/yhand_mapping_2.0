@@ -1,0 +1,88 @@
+{
+  "source": "/home/ubuntu/mapping/ring_mlp_prev_m_target_q/ring_mlp_prev_m_target_q_50.csv",
+  "output": "/home/ubuntu/mapping/ring_q0_curl_multihead/ring_target_q0_supervised_curl_1704.csv",
+  "rows_source": 85200,
+  "rows_stable": 1704,
+  "group_col": "file",
+  "target_q_training_columns": [
+    "target_q_0",
+    "target_q_1"
+  ],
+  "target_q_1_definition": "supervised target_curl from robust-scaled -target_m_0 and target_m_2",
+  "robust_percentiles": {
+    "low": 5.0,
+    "high": 95.0
+  },
+  "motor_curl_source": {
+    "minus_target_m_0_percentile_range": [
+      -3.004852509534999,
+      436.2254943848
+    ],
+    "target_m_2_percentile_range": [
+      -39.4421234131,
+      349.36767120356996
+    ],
+    "formula": "target_curl = clip(0.5 * scale(-target_m_0) + 0.5 * scale(target_m_2), 0, 1)",
+    "zero_q_origin_formula": "target_curl = clip((raw_target_curl - raw_curl_at_zero_q) / (1 - raw_curl_at_zero_q), 0, 1)"
+  },
+  "q_calibration": {
+    "target_q_1_to_q1_cal": {
+      "source_percentile_range": [
+        -15.861447763480001,
+        51.88389282224
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_2_to_q2_cal": {
+      "source_percentile_range": [
+        0.02185850595,
+        101.82660446168
+      ],
+      "output_range": [
+        0.0,
+        90.0
+      ]
+    },
+    "target_q_3_to_q3_cal": {
+      "source_percentile_range": [
+        -2.374575006995,
+        80.53773231503499
+      ],
+      "output_range": [
+        0.0,
+        30.0
+      ]
+    }
+  },
+  "linear_curl_fit": {
+    "formula": "curl = clip(bias + w1*q1_cal + w2*q2_cal + w3*q3_cal, 0, 1)",
+    "bias": -0.11218946697824632,
+    "weights": {
+      "q1_cal": 0.004877290078516405,
+      "q2_cal": 0.004050143536841546,
+      "q3_cal": 0.010958226812483533
+    },
+    "r2": 0.9990109579043411,
+    "raw_bias": 0.005793933085760649,
+    "raw_weights": {
+      "q1_cal": 0.004359896879203658,
+      "q2_cal": 0.003620495783997673,
+      "q3_cal": 0.009795755042703087
+    },
+    "raw_r2": 0.9989596719135655,
+    "zero_q": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "q1_q2_q3_zero_calibrated": [
+      21.07200711326983,
+      0.0,
+      0.8591878879110778
+    ],
+    "raw_curl_at_q1_q2_q3_zero": 0.10608210522309743
+  }
+}
