@@ -63,6 +63,14 @@ ros2 launch yhand_mapping data_collection_right_independent_launch.py target_fin
 ros2 launch yhand_mapping data_collection_left_independent_launch.py target_finger:=ring
 ```
 
+多根手指按输入顺序依次采集，例如中指 → 无名指 → 小指：
+
+```bash
+ros2 launch yhand_mapping data_collection_left_independent_launch.py target_finger:=middle,ring,little
+```
+
+同一次运行复用驱动和手套节点；重复手指只采集一次。右手替换为 `data_collection_right_independent_launch.py`。
+
 ### 2.4 legacy 启动（不建议双手并行时使用）
 
 ```bash
@@ -88,7 +96,7 @@ ros2 launch yhand_mapping data_collection_launch.py target_hand:=left target_fin
 
 常用参数：
 
-- `target_finger`：`all|thumb|index|middle|ring|little`
+- `target_finger`：`all|thumb|index|middle|ring|little`，也支持逗号分隔列表，按输入顺序采集
 - `start_glove_node`：是否启动手套发布（默认 `true`）
 - `disable_glove_required`：手套不就绪是否允许继续启动（默认 `true`）
 - `collect_in_terminal`：`true|false|auto`（controller 是否在独立 `gnome-terminal` 中运行）
@@ -250,7 +258,8 @@ ros2 launch
 
 ### 8.1 quota 和 mode 计划
 
-- 每个 combo 的名义目标：`QUOTA_BASE_PER_COMBO`
+- 四指每个 combo 的名义目标：`FOUR_FINGER_QUOTA_BASE_PER_COMBO=1000`
+- 拇指每个 combo 的基础配额：`QUOTA_BASE_PER_COMBO=2000`，再按 `opp_on/off` 比例分配
 - 每个 combo 上下浮动：`QUOTA_FLOAT_RATIO`
 - thumb 有 `opp_on/off` 比例约束：`THUMB_OPPOSITION_ON_RATIO`
 - active_mode quota：
@@ -264,6 +273,11 @@ ros2 launch
 
 由 `DISABLE_RANDOM_SINGLE_MOTOR_MODES=True` 控制。
 
+四指保留 ±10% 浮动，每个 combo 配额范围为 900–1100 点。完整组合下，
+食指和中指各 6 个 combo，名义目标各 6000 点；无名指和小指各 4 个 combo，名义目标各 4000 点。
+预均匀采样计入配额，每指额外 500 点的屈曲边界增强仍保留，因此最终总点数可能超过基础配额。
+恢复旧断点时保留已采点数，并采用新配额重新判断完成状态。
+
 ### 8.2 preuniform（单电机预均匀）
 
 `PRE_RANDOM_UNIFORM_ENABLE=True` 时执行，目的是先覆盖单轴基础样本：
@@ -274,6 +288,19 @@ ros2 launch
   - 其他：`PRE_RANDOM_OTHER_STEP`
 - 伸肌电机：先把屈肌拉到收紧侧，再让伸肌向 0 方向均匀采点
   - 步长：`PRE_RANDOM_EXTENSOR_STEP`
+
+预均匀采样运动阶段使用以下辅助电流（左右手及拇指按肌肉名称匹配）：
+
+- 屈肌主动时：本指伸肌以 **+0.05 A** 放线 **0.5 秒**，`kp/kd=0`；随后伸肌保持 **`kp=kd=I=0`** 至屈肌到位或超时。其他电机保持默认电流。
+- 内收/外展主动时：本指全部伸肌和屈肌始终设置 **`kp=kd=I=0`**，另一侧侧摆以 **+0.05 A** 放线 **0.5 秒**，`kp/kd=0`；随后该对抗侧摆也保持 **`kp=kd=I=0`** 至主动侧摆到位或超时。其他电机保持默认电流。
+- 伸肌主动时：本指全部屈肌和两侧侧摆以 **+0.05 A** 放线 **1 秒**，`kp/kd=0`；随后屈肌保持 **`kp=kd=I=0`**，两路侧摆以 **−0.03 A** 纯电流张紧、`kp/kd=0`，持续至伸肌到位或超时。伸肌持续位控到目标。
+
+主动电机立即开始位控，放线与其运动同时执行。主动电机目标误差在 **±14°** 内连续 **1 秒**确认到位，运动 **3 秒**超时。
+屈肌和侧摆预采不再使用按位移计算的短暂放线及 `−0.1 A` 回收时序。
+随后全部恢复默认纯电流张紧，沿用第 1–2 秒的结果采集窗口。
+参数为 `PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A`、`PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A` 和 `PRE_RANDOM_PASSIVE_RELEASE_SEC`，
+伸肌预采使用 `PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A`、`PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC` 和 `PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A`，
+受 `ANTAGONIST_RELEASE_ENABLE` 控制。该调整仅用于 `preuniform`；随机组合及人工补点沿用原有策略。
 
 若过程被中断，可恢复后继续。
 
@@ -327,14 +354,24 @@ ros2 launch
 
 每个点在终端里会看到阶段流转：
 
-- `move`
-- `release+rewind` / `rewind` / `target_hold`（按被动电机时间线）
+- 含主动伸肌的点：`extensor_first` → `remaining_targets`（有其他目标时）
+- 其他点：`move`、`release+rewind` / `rewind` / `target_hold`（按被动电机时间线）
 - `arrived`（达到阈值并稳定 `ARRIVAL_CONFIRM_SEC`）
 - `stable`（稳定采样阶段）
 
 ### 9.1 被动电机策略
 
-同手指非主动电机和其他手指都保持“纯电流张紧”行：`[0,0,tor,0,0]`。
+当点的主动电机中包含本指伸肌时（左右手均支持，包括拇指短伸、长伸及伸肌单电机预采点），默认采用分阶段运动：
+
+1. 伸肌立即位控到目标；本指全部屈肌和两路侧摆同时持续以 **+0.08 A** 放线，`kp/kd=0`，包括该 combo 的主动侧摆。不设置独立的放线等待时间。其他待运动目标（例如拇指对掌）暂时位控保持点开始时的位置。
+2. 伸肌反馈在 **±14°** 内连续保持 **1 秒**后，保持伸肌位置目标，并让剩余主动电机位控到各自目标。本指未参与目标位控的屈肌和侧摆继续以 **+0.08 A** 放线。
+3. 全部主动电机达到同样的到位条件后，全部 28 路恢复默认纯电流张紧，再按原来的稳定结果窗口采集。该策略不执行运动期间的 `−0.1 A` 回收。
+
+伸肌阶段最多等待 **3 秒**，其后的组合到位阶段另有 **3 秒**。伸肌超时不会开始侧摆目标运动；任何阶段超时都会恢复默认张紧并沿用原来的超时点记录方式，`reached=false`。缺失、过期或非有限的位置反馈不能完成到位确认。
+
+参数位于 `data_collection_config.py`：`EXTENSOR_FIRST_ENABLE`、`EXTENSOR_FIRST_RELEASE_CURRENT_A`、`EXTENSOR_FIRST_TIMEOUT_SEC`。该策略还受 `ANTAGONIST_RELEASE_ENABLE` 控制；关闭辅助时保持原来的同时位控方式。点的 JSON 元数据增加 `motion_policy`、`extensor_stage_reached`、`extensor_stage_elapsed_sec`、`timeout_stage`，用于区分执行方式和失败阶段。
+
+其他点中，同手指非主动电机和其他手指都保持“纯电流张紧”行：`[0,0,tor,0,0]`。
 
 主动电机集合的对侧电机会按 `active->target` 映射执行：
 
@@ -346,7 +383,8 @@ ros2 launch
 
 - 到位判定阈值：`POINT_ARRIVAL_TOL`
 - 到位确认时间：`ARRIVAL_CONFIRM_SEC`
-- 最长运动时间：`MOVE_TIMEOUT_SEC`
+- 普通点最长运动时间：`MOVE_TIMEOUT_SEC`
+- 含伸肌点：伸肌阶段使用 `EXTENSOR_FIRST_TIMEOUT_SEC`，其后组合到位阶段使用 `MOVE_TIMEOUT_SEC`
 
 ### 9.3 稳定结果窗口
 
@@ -369,12 +407,14 @@ ros2 launch
 
 ### 10.3 校准流程
 
-1. 先做回0前预放线（侧摆/屈肌）
-2. 下发全手 zero 目标
-3. 要求 `|pos|<=POINT_ARRIVAL_TOL` 且稳定 `ZERO_CALIBRATE_STABLE_SEC`
-4. 单次事件最多尝试 `ZERO_CALIBRATE_MAX_ATTEMPTS`
+1. 仅四指的 **6 路屈肌和 8 路侧摆**，共 **14 路**，以 **+0.08 A** 纯电流放线 **1 秒**，`kp/kd=0`。其余 14 路（含四指伸肌、拇指和腕部）位控保持该阶段开始的位置；无有效反馈时使用默认纯电流。
+2. 放线结束后，**四指伸肌先位控回 `pos=0`**，前馈电流固定 **−0.05 A**（`ZERO_EXTENSOR_TOR_A`），`kp/kd/vel` 沿用默认值。左手食指/中指/无名指/小指电机为 **25/23/10/11**，右手为 **11/9/24/25**。四指屈肌和侧摆 14 路切换为纯电流 **−0.03 A** 张紧（`ZERO_FLEX_SWAY_TIGHTEN_TOR_A`），**`kp/kd=0`**，允许被动位置变化；拇指和腕部共 10 路保持放线结束的位置。
+3. 四指伸肌反馈均在 **±14°** 内持续 **2 秒**后，其他电机才位控回零。最终全部 **28 路 `pos=0`**，伸肌继续使用 **−0.05 A** 前馈，其他电机沿用默认 `kp/kd/vel/tor`。拇指和腕部在此阶段按原有方式回零。
+4. 每阶段最多等待 **5 秒**，单次事件最多 **3 轮**尝试。全手成功也需全部反馈在 **±14°** 内持续 **2 秒**。反馈缺失、过期或非有限值不计入到位确认；伸肌失败不会进入其他电机回零阶段，失败后保持实测位置，无有效反馈则下发零电流。
 
 每次事件都会写入 `zero_calibration_events.csv`。
+
+周期、菜单 `z`、预采启动以及停滞恢复的回0都使用该流程。这里只返回已有零位，不调用 SDK `Set_Zero`；含伸肌 combo 运动时的 **+0.08 A** 放线策略独立保持。
 
 ---
 

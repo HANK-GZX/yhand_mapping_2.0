@@ -300,7 +300,7 @@ ROS publication policy:
 # right_glove_sn = "1742DBEA"
 
 #新采购手套
-left_glove_sn = "A633F1AE"
+left_glove_sn = "C89C043E"
 right_glove_sn = "3644911F"
 
 

@@ -1,13 +1,13 @@
 {
   "hand": "left",
-  "updated_at": "2026-10-10T14:34:29.807228",
+  "updated_at": "2026-10-13T15:05:59.869954",
   "collection_mode": "per_finger",
   "finger_counts": {
-    "thumb": 8798,
+    "thumb": 0,
     "index": 0,
-    "middle": 0,
-    "ring": 0,
-    "little": 0
+    "middle": 10332,
+    "ring": 5000,
+    "little": 8842
   },
   "combo_counts": {
     "index_deep_in": 0,
@@ -16,20 +16,20 @@
     "index_shallow_out": 0,
     "index_ext_in": 0,
     "index_ext_out": 0,
-    "middle_deep_in": 0,
-    "middle_deep_out": 0,
-    "middle_shallow_in": 0,
-    "middle_shallow_out": 0,
-    "middle_ext_in": 0,
-    "middle_ext_out": 0,
-    "ring_flex_in": 0,
-    "ring_flex_out": 0,
-    "ring_ext_in": 0,
-    "ring_ext_out": 0,
-    "little_flex_in": 0,
-    "little_flex_out": 0,
-    "little_ext_in": 0,
-    "little_ext_out": 0
+    "middle_deep_in": 10332,
+    "middle_deep_out": 10332,
+    "middle_shallow_in": 10332,
+    "middle_shallow_out": 10332,
+    "middle_ext_in": 10332,
+    "middle_ext_out": 10332,
+    "ring_flex_in": 5000,
+    "ring_flex_out": 5000,
+    "ring_ext_in": 5000,
+    "ring_ext_out": 5000,
+    "little_flex_in": 8842,
+    "little_flex_out": 8842,
+    "little_ext_in": 8842,
+    "little_ext_out": 8842
   },
   "combo_axis_motors": {
     "index_deep_in": [

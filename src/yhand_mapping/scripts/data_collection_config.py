@@ -38,6 +38,12 @@ TARGET_DIRECTION_EPS = 1e-6
 # Antagonist release assist during multi-motor active movement:
 # for each active motor, its mapped antagonist(s) are commanded to passive release.
 ANTAGONIST_RELEASE_ENABLE = True
+# Points with an active extensor: release this finger's flexors and both sway
+# motors while the extensor moves, then move the remaining target motors.
+EXTENSOR_FIRST_ENABLE = True
+EXTENSOR_FIRST_RELEASE_CURRENT_A = 0.08
+# Each movement stage gets its own timeout; there is no prerelease dwell.
+EXTENSOR_FIRST_TIMEOUT_SEC = MOVE_TIMEOUT_SEC
 # Deprecated compatibility knobs:
 # main planner now reads DATA_COLLECTION_RELEASE_*_BY_ACTIVE_TARGET below.
 # Keep these for backward compatibility; they are not used by planner logic.
@@ -47,12 +53,14 @@ ANTAGONIST_RELEASE_SEC = 0.4
 REWIND_TO_ZERO_TOR = -0.1
 # Fixed rewind dwell time after release phase (seconds).
 REWIND_TO_ZERO_SEC = 1.0
-# Zero-calibration pre-release (align with motor_position_test.py):
-# before commanding full-hand zero, temporarily release sway/flexor motors.
-ZERO_SWAY_RELEASE_TOR_A = 0.4
-ZERO_SWAY_RELEASE_SEC = 0.05
-ZERO_FLEXOR_RELEASE_TOR_A = 0.2
-ZERO_FLEXOR_RELEASE_SEC = 0.5
+# Data-collection zero return: release four-finger flexors/sway for 1 s,
+# then tension them at -0.03 A while extensors return first, then all motors.
+ZERO_SWAY_RELEASE_TOR_A = 0.08
+ZERO_SWAY_RELEASE_SEC = 1.0
+ZERO_FLEXOR_RELEASE_TOR_A = 0.08
+ZERO_FLEXOR_RELEASE_SEC = 1.0
+ZERO_FLEX_SWAY_TIGHTEN_TOR_A = -0.03
+ZERO_EXTENSOR_TOR_A = -0.05
 
 # Data-collection-only antagonist release current profile (A).
 # Intentionally decoupled from motor_position_test.
@@ -171,6 +179,7 @@ DATA_COLLECTION_RELEASE_SEC_PER_DEG_BY_ACTIVE_TARGET = {'left': {1: {28: 0.00018
 
 # Planning / random walk
 QUOTA_BASE_PER_COMBO = 2000
+FOUR_FINGER_QUOTA_BASE_PER_COMBO = 1000
 QUOTA_FLOAT_RATIO = 0.10
 # Thumb opposition sampling preference:
 # when thumb has both opposition_mode on/off combos, allocate about this ratio to "on".
@@ -231,6 +240,12 @@ PRE_RANDOM_FLEX_STEP = 15.0
 PRE_RANDOM_SWAY_STEP = 7.0
 PRE_RANDOM_OTHER_STEP = 15.0
 PRE_RANDOM_EXTENSOR_STEP = 15.0
+PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A = 0.05
+PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A = 0.05
+PRE_RANDOM_PASSIVE_RELEASE_SEC = 0.5
+PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A = 0.05
+PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC = 1.0
+PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A = -0.03
 ZERO_CALIBRATE_EVERY_POINTS = 50
 ZERO_CALIBRATE_MAX_ATTEMPTS = 3
 # After zero position is reached, keep within tolerance for this stable hold

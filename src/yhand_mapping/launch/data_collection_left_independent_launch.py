@@ -255,7 +255,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "target_finger",
                 default_value="all",
-                description="Target finger to collect: all/thumb/index/middle/ring/little",
+                description="Target fingers: all or comma-separated thumb/index/middle/ring/little; collected in input order.",
             ),
             DeclareLaunchArgument(
                 "start_glove_node",

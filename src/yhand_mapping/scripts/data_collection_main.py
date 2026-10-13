@@ -60,6 +60,9 @@ from data_collection_config import (
     DISABLE_RANDOM_SINGLE_MOTOR_MODES,
     DIRECTION_BY_ROOM_WEIGHTED,
     ENFORCE_ACTIVE_TARGET_DECREASE,
+    EXTENSOR_FIRST_ENABLE,
+    EXTENSOR_FIRST_RELEASE_CURRENT_A,
+    EXTENSOR_FIRST_TIMEOUT_SEC,
     FEEDBACK_STALE_SEC,
     FINGER_COMPLETE_MIN_RATIO,
     FINGER_UNFREEZE_MAX_NO_PROGRESS_ROUNDS,
@@ -69,6 +72,7 @@ from data_collection_config import (
     FLEXION_EDGE_REGION_RATIO,
     FOUR_FINGER_FLEXION_EXTRA_POINTS_PER_FINGER,
     FOUR_FINGER_ACTIVE_MODE_RATIO,
+    FOUR_FINGER_QUOTA_BASE_PER_COMBO,
     HAND_CHOICES,
     MIN_STEP_ABS,
     MOTOR_COUNT,
@@ -85,6 +89,12 @@ from data_collection_config import (
     RETURN_ZERO_TIMEOUT_SEC,
     RNG_SEED,
     PRE_RANDOM_EXTENSOR_STEP,
+    PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A,
+    PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC,
+    PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A,
+    PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A,
+    PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A,
+    PRE_RANDOM_PASSIVE_RELEASE_SEC,
     PRE_RANDOM_FLEX_STEP,
     PRE_RANDOM_OTHER_STEP,
     PRE_RANDOM_SWAY_STEP,
@@ -104,6 +114,8 @@ from data_collection_config import (
     THUMB_FLEXION_EXTRA_POINTS,
     ZERO_FLEXOR_RELEASE_SEC,
     ZERO_FLEXOR_RELEASE_TOR_A,
+    ZERO_FLEX_SWAY_TIGHTEN_TOR_A,
+    ZERO_EXTENSOR_TOR_A,
     ZERO_CALIBRATE_STABLE_SEC,
     ZERO_CALIBRATE_MAX_ATTEMPTS,
     ZERO_CALIBRATE_EVERY_POINTS,
@@ -444,7 +456,9 @@ def _finger_motor_sets(hand: str):
 def _zero_sway_motor_ids(hand: str):
     hand_map = HAND_MOTOR_MAP.get(hand, {})
     out = set()
-    for muscle_map in hand_map.values():
+    for finger, muscle_map in hand_map.items():
+        if finger == "thumb":
+            continue
         if not isinstance(muscle_map, dict):
             continue
         for muscle_name, motor_id in muscle_map.items():
@@ -459,7 +473,9 @@ def _zero_sway_motor_ids(hand: str):
 def _zero_flexor_motor_ids(hand: str):
     hand_map = HAND_MOTOR_MAP.get(hand, {})
     out = set()
-    for muscle_map in hand_map.values():
+    for finger, muscle_map in hand_map.items():
+        if finger == "thumb":
+            continue
         if not isinstance(muscle_map, dict):
             continue
         for muscle_name, motor_id in muscle_map.items():
@@ -471,12 +487,32 @@ def _zero_flexor_motor_ids(hand: str):
     return sorted(out)
 
 
+def _zero_feedback_positions(node: DataCollectionNode):
+    snap = node.snapshot()
+    if snap is None:
+        return None
+    age = float(snap.get("feedback_age", float("inf")))
+    if not math.isfinite(age) or age > FEEDBACK_STALE_SEC:
+        return None
+    positions = np.asarray(snap["pos"], dtype=np.float64)
+    if positions.shape != (MOTOR_COUNT,) or not np.all(np.isfinite(positions)):
+        return None
+    return positions
+
+
 def _run_zero_prerelease(node: DataCollectionNode, defaults_hand):
     sway_motor_ids = _zero_sway_motor_ids(node.hand)
     flexor_motor_ids = _zero_flexor_motor_ids(node.hand)
     total_sec = max(float(ZERO_SWAY_RELEASE_SEC), float(ZERO_FLEXOR_RELEASE_SEC))
     if total_sec <= 0.0 or (not sway_motor_ids and not flexor_motor_ids):
         return
+
+    # All non-releasing motors, including extensors, hold their initial pose.
+    positions = _zero_feedback_positions(node)
+    if positions is not None:
+        hold_matrix = _build_hold_current_matrix(defaults_hand, positions)
+    else:
+        hold_matrix = _build_idle_tor_matrix(defaults_hand)
 
     if sway_motor_ids:
         print(
@@ -510,7 +546,7 @@ def _run_zero_prerelease(node: DataCollectionNode, defaults_hand):
                     0.0,
                 ]
 
-        matrix = _build_zero_matrix(defaults_hand)
+        matrix = [row[:] for row in hold_matrix]
         for mid, row in overrides.items():
             matrix[int(mid) - 1] = [float(row[0]), float(row[1]), float(row[2]), float(row[3]), float(row[4])]
         node.set_command_matrix(matrix)
@@ -1725,6 +1761,43 @@ def _dc_release_sec_for_pair(hand: str, active_motor_id: int, target_motor_id: i
     return float(delta_abs * per_deg)
 
 
+def _extensor_first_motor_sets(hand, finger, target_by_motor, active_motor_ids):
+    """Use muscle roles so the same staged motion works for both hands."""
+    if not (ANTAGONIST_RELEASE_ENABLE and EXTENSOR_FIRST_ENABLE):
+        return [], []
+    muscles = HAND_MOTOR_MAP.get(hand, {}).get(finger, {})
+    active = set(active_motor_ids) & set(target_by_motor)
+    extensors = sorted(int(mid) for role, mid in muscles.items()
+                       if role.startswith("ext") and int(mid) in active)
+    if not extensors:
+        return [], []
+    released = sorted(int(mid) for role, mid in muscles.items()
+                      if "flex" in role or role in ("abduction", "adduction"))
+    return extensors, released
+
+
+def _preuniform_passive_currents(hand: str, finger: str, target_by_motor: dict[int, float]):
+    if not ANTAGONIST_RELEASE_ENABLE or len(target_by_motor) != 1:
+        return {}
+    muscles = HAND_MOTOR_MAP.get(hand, {}).get(finger, {})
+    active = next(iter(target_by_motor))
+    role = next((name for name, mid in muscles.items() if int(mid) == int(active)), "")
+    if role.startswith("ext"):
+        return {int(mid): float(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A)
+                for name, mid in muscles.items()
+                if "flex" in name or name in ("abduction", "adduction")}
+    if "flex" in role:
+        return {int(mid): float(PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A)
+                for name, mid in muscles.items() if name.startswith("ext")}
+    if role in ("abduction", "adduction"):
+        currents = {int(mid): 0.0 for name, mid in muscles.items()
+                    if name.startswith("ext") or "flex" in name}
+        opposite = "adduction" if role == "abduction" else "abduction"
+        currents[int(muscles[opposite])] = float(PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A)
+        return currents
+    return {}
+
+
 def _build_combo_release_plan(
     hand: str,
     current_pos: np.ndarray,
@@ -1884,6 +1957,8 @@ def _max_active_error(snapshot, target_by_motor, arrival_motor_ids: list[int] | 
             continue
         cur = float(snapshot["pos"][motor_id - 1])
         tgt = float(target_by_motor[motor_id])
+        if not (math.isfinite(cur) and math.isfinite(tgt)):
+            return float("inf")
         errs.append(abs(cur - tgt))
     return max(errs) if errs else 0.0
 
@@ -1956,6 +2031,7 @@ def _execute_point(
     nominal_total: int,
     runtime_tick=None,
     process_include_post_stable: bool = False,
+    preuniform: bool = False,
 ):
     snap_init = node.snapshot()
     hold_pos_by_motor = {}
@@ -1979,7 +2055,31 @@ def _execute_point(
     arrival_motor_ids = [int(mid) for mid in active_motors if int(mid) in target_by_motor]
     if not arrival_motor_ids:
         arrival_motor_ids = [int(mid) for mid in target_by_motor.keys()]
-    if ANTAGONIST_RELEASE_ENABLE:
+    extensor_ids, extensor_release_ids = _extensor_first_motor_sets(
+        node.hand, finger, target_by_motor, arrival_motor_ids)
+    extensor_first = bool(extensor_ids)
+    preuniform_currents = (_preuniform_passive_currents(node.hand, finger, target_by_motor)
+                           if preuniform else {})
+    continuous_assist = bool(preuniform_currents)
+    preuniform_extensor = bool(continuous_assist and any(
+        role.startswith("ext") and int(mid) in arrival_motor_ids
+        for role, mid in HAND_MOTOR_MAP.get(node.hand, {}).get(finger, {}).items()))
+    preuniform_release_sec = float(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC
+                                  if preuniform_extensor else PRE_RANDOM_PASSIVE_RELEASE_SEC)
+    preuniform_rest_currents = dict.fromkeys(preuniform_currents, 0.0)
+    if preuniform_extensor:
+        muscles = HAND_MOTOR_MAP[node.hand][finger]
+        for role in ("abduction", "adduction"):
+            preuniform_rest_currents[int(muscles[role])] = float(PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A)
+    extensor_stage_reached = False
+    extensor_stage_elapsed = 0.0
+    if extensor_first:
+        release_tor_plan = (dict(preuniform_currents) if preuniform_extensor else
+                            {mid: float(EXTENSOR_FIRST_RELEASE_CURRENT_A)
+                             for mid in extensor_release_ids})
+    elif continuous_assist:
+        release_tor_plan = dict(preuniform_currents)
+    elif ANTAGONIST_RELEASE_ENABLE:
         snap0 = snap_init if snap_init is not None else node.snapshot()
         cur_pos = (
             np.asarray(snap0["pos"], dtype=np.float64)
@@ -1993,13 +2093,19 @@ def _execute_point(
             active_motor_ids=arrival_motor_ids,
         )
 
-    release_active = bool(release_sec_plan)
+    release_active = extensor_first or continuous_assist or bool(release_sec_plan)
     release_total_sec = max((float(v) for v in release_sec_plan.values()), default=0.0)
     current_cmd_matrix = None
     last_stage = None
 
     def _stage_label(phase: str, event: str) -> str:
         if phase == "move":
+            if event == "preuniform_current0":
+                return "current0"
+            if event == "preuniform_passive_current":
+                return "passive_current"
+            if event in ("extensor_first", "remaining_targets"):
+                return event
             if "release" in event and "rewind" in event:
                 return "release+rewind"
             if "release" in event:
@@ -2050,8 +2156,34 @@ def _execute_point(
             return "override_release_changed"
         return "override_release_rewind_changed"
 
-    override_tor_map_now = _override_tor_map(0.0) if release_active else {}
-    if override_tor_map_now:
+    override_tor_map_now = (dict(preuniform_currents) if continuous_assist else
+                           _override_tor_map(0.0) if release_active and not extensor_first else {})
+    if extensor_first:
+        first_targets = {mid: target_by_motor[mid] for mid in extensor_ids}
+        # Delay other active motors (e.g. thumb opposition). Flexors and sway
+        # motors must stay in pure current release, including the active sway.
+        for mid in arrival_motor_ids:
+            if mid not in first_targets and mid not in release_tor_plan:
+                first_targets[mid] = hold_pos_by_motor.get(mid, 0.0)
+        first_matrix = _build_command_matrix_for_point(
+            hand=node.hand, defaults_hand=defaults_hand,
+            finger_motor_set=finger_motor_set, finger=finger,
+            target_by_motor=first_targets, release_tor_by_motor=release_tor_plan,
+        )
+        print(f"[extensor-first] finger={finger} extensors={extensor_ids} "
+              f"release_motors={extensor_release_ids} "
+              f"release_current=+{(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A if preuniform_extensor else EXTENSOR_FIRST_RELEASE_CURRENT_A):.3f}A kp/kd=0; "
+              "move extensors immediately, then remaining target motors.")
+        if preuniform_extensor:
+            print(f"[preuniform-assist] release for {preuniform_release_sec:.3f}s, "
+                  f"then passive_currents={preuniform_rest_currents}, "
+                  "kp/kd=0 until extensor arrival or timeout.")
+        _apply_cmd_matrix(first_matrix, phase="move", event="extensor_first")
+    elif override_tor_map_now:
+        if continuous_assist:
+            print(f"[preuniform-assist] finger={finger} passive_currents={preuniform_currents}; "
+                  f"kp/kd=0, release for {preuniform_release_sec:.3f}s, "
+                  f"then passive_currents={preuniform_rest_currents}, kp/kd=0 until arrival or timeout.")
         matrix_release = _build_command_matrix_for_point(
             hand=node.hand,
             defaults_hand=defaults_hand,
@@ -2066,6 +2198,8 @@ def _execute_point(
         _apply_cmd_matrix(matrix_normal, phase="move", event="init_target")
 
     t0 = time.monotonic()
+    motion_stage = "extensor_first" if extensor_first else "simultaneous"
+    stage_start = t0
     last_override_signature = tuple(
         sorted((int(mid), float(tor)) for mid, tor in override_tor_map_now.items())
     )
@@ -2097,17 +2231,22 @@ def _execute_point(
                 break
         now = time.monotonic()
         override_ids_now = []
-        if release_active:
+        if continuous_assist:
+            releasing = (now - t0) < max(0.0, preuniform_release_sec)
+            override_tor_map_now = {mid: current if releasing else preuniform_rest_currents[mid]
+                                    for mid, current in preuniform_currents.items()}
+            override_ids_now = sorted(override_tor_map_now)
+        elif release_active and not extensor_first:
             override_tor_map_now = _override_tor_map(now - t0)
             override_ids_now = sorted(override_tor_map_now.keys())
 
-        # During active movement: passive motors follow per-motor timeline:
-        # release -> rewind(-0.1A) -> default tor tighten.
+        # Preuniform points: release -> configured passive currents until movement ends.
+        # Other non-extensor points: release -> rewind -> default current.
         desired_override_map = override_tor_map_now if override_ids_now else {}
         desired_override_signature = tuple(
             sorted((int(mid), float(tor)) for mid, tor in desired_override_map.items())
         )
-        if desired_override_signature != last_override_signature:
+        if (not extensor_first or continuous_assist) and desired_override_signature != last_override_signature:
             if desired_override_signature:
                 matrix_override = _build_command_matrix_for_point(
                     hand=node.hand,
@@ -2119,10 +2258,16 @@ def _execute_point(
                     hold_pos_by_motor=hold_pos_by_motor,
                 )
                 if override_ids_now:
+                    if continuous_assist:
+                        print(f"[preuniform-assist] finger={finger} 放线结束，"
+                              f"passive_currents={preuniform_rest_currents}, kp/kd=0 "
+                              "至主动电机到位或超时。")
                     _apply_cmd_matrix(
                         matrix_override,
                         phase="move",
-                        event=_override_event_name(desired_override_map),
+                        event=("preuniform_passive_current" if preuniform_extensor else
+                               "preuniform_current0" if continuous_assist else
+                               _override_event_name(desired_override_map)),
                     )
             else:
                 _apply_cmd_matrix(matrix_normal, phase="move", event="override_cleared_to_target")
@@ -2140,10 +2285,37 @@ def _execute_point(
                     target_by_motor,
                     arrival_motor_ids=arrival_motor_ids,
                 )
-                if max_err <= point_tolerance:
+                stage_error = (_max_active_error(snap, target_by_motor, extensor_ids)
+                               if motion_stage == "extensor_first" else max_err)
+                if stage_error <= point_tolerance:
                     if arrival_enter_t is None:
                         arrival_enter_t = now
                     elif (now - arrival_enter_t) >= ARRIVAL_CONFIRM_SEC:
+                        if motion_stage == "extensor_first":
+                            extensor_stage_reached = True
+                            extensor_stage_elapsed = float(now - stage_start)
+                            remaining = set(arrival_motor_ids) - set(extensor_ids)
+                            if remaining:
+                                # Active sway gets its final position target now.
+                                # Keep all other released flexors/sway at +0.08 A;
+                                # do not rewind them while the combo is moving.
+                                second_matrix = _build_command_matrix_for_point(
+                                    hand=node.hand, defaults_hand=defaults_hand,
+                                    finger_motor_set=finger_motor_set, finger=finger,
+                                    target_by_motor=target_by_motor,
+                                    release_tor_by_motor=release_tor_plan,
+                                )
+                                print(f"[extensor-arrived] finger={finger} "
+                                      f"elapsed={extensor_stage_elapsed:.3f}s; "
+                                      "hold extensor targets, move remaining target motors.")
+                                for mid in remaining & set(extensor_release_ids):
+                                    release_sec_plan[mid] = extensor_stage_elapsed
+                                motion_stage = "remaining_targets"
+                                stage_start = now
+                                arrival_enter_t = None
+                                _apply_cmd_matrix(second_matrix, phase="move",
+                                                  event="remaining_targets")
+                                continue
                         reached = True
                         _print_point_stage(
                             point_id=point_id,
@@ -2153,18 +2325,45 @@ def _execute_point(
                         break
                 else:
                     arrival_enter_t = None
-        if (time.monotonic() - t0) >= MOVE_TIMEOUT_SEC:
+            else:
+                # Stale/missing feedback must not bridge the confirmation period.
+                arrival_enter_t = None
+        stage_timeout = EXTENSOR_FIRST_TIMEOUT_SEC if motion_stage == "extensor_first" else MOVE_TIMEOUT_SEC
+        if (time.monotonic() - stage_start) >= stage_timeout:
             timeout = True
+            if extensor_first:
+                print(f"[extensor-point-timeout] finger={finger} stage={motion_stage}; "
+                      "stop movement and restore default tension currents.")
             break
         time.sleep(0.005)
 
     move_elapsed = float(time.monotonic() - t0)
+    if continuous_assist:
+        release_sec_plan = {mid: min(move_elapsed, max(0.0, preuniform_release_sec))
+                            if current != 0.0 else 0.0
+                            for mid, current in preuniform_currents.items()}
+        release_total_sec = max(release_sec_plan.values(), default=0.0)
+    if extensor_first:
+        if not extensor_stage_reached:
+            extensor_stage_elapsed = move_elapsed
+        for mid in extensor_release_ids:
+            release_sec_plan.setdefault(mid, move_elapsed)
+        release_total_sec = max(release_sec_plan.values(), default=0.0)
+
+    motion_metadata = {
+        "motion_policy": ("extensor_first" if extensor_first else
+                          "preuniform_assist" if continuous_assist else "simultaneous"),
+        "extensor_stage_reached": extensor_stage_reached if extensor_first else None,
+        "extensor_stage_elapsed_sec": extensor_stage_elapsed,
+        "timeout_stage": motion_stage if timeout else "",
+    }
 
     # Post-move target state: all motors in pure tor tighten (no position control).
     matrix_tor_tighten = _build_idle_tor_matrix(defaults_hand)
 
     if interrupted:
         return {
+            **motion_metadata,
             "reached": False,
             "timeout": False,
             "interrupted": True,
@@ -2240,6 +2439,7 @@ def _execute_point(
                 process_fb.append(list(row) if isinstance(row, list) else [])
 
     return {
+        **motion_metadata,
         "reached": bool(reached),
         "timeout": bool(timeout),
         "interrupted": False,
@@ -2272,66 +2472,97 @@ def _execute_point(
     }
 
 
-def _run_zero_calibration(node: DataCollectionNode, defaults_hand):
-    _run_zero_prerelease(node, defaults_hand)
-    matrix = _build_zero_matrix(defaults_hand)
-    attempts = 0
+def _point_motion_metadata(outcome):
+    keys = ("motion_policy", "extensor_stage_reached", "extensor_stage_elapsed_sec", "timeout_stage")
+    return {key: outcome[key] for key in keys if key in outcome}
+
+
+def _wait_zero_positions(node: DataCollectionNode, motor_ids: list[int]):
+    t0 = time.monotonic()
+    timeout = float(RETURN_ZERO_TIMEOUT_SEC) + float(ZERO_CALIBRATE_STABLE_SEC)
+    stable_enter_t = None
     last_max_abs_pos = None
-    while attempts < int(ZERO_CALIBRATE_MAX_ATTEMPTS):
-        attempts += 1
-        node.set_command_matrix(matrix)
-        t0 = time.monotonic()
-        attempt_timeout = float(RETURN_ZERO_TIMEOUT_SEC) + float(ZERO_CALIBRATE_STABLE_SEC)
-        success = False
-        stable_enter_t = None
-        while (time.monotonic() - t0) < attempt_timeout:
-            snap = node.snapshot()
-            if snap is None:
-                time.sleep(0.02)
-                continue
-            pos = snap["pos"]
-            try:
-                last_max_abs_pos = float(np.max(np.abs(pos)))
-            except Exception:
-                last_max_abs_pos = None
-            if np.all(np.abs(pos) <= POINT_ARRIVAL_TOL):
+    indices = np.asarray(motor_ids, dtype=int) - 1
+    while (time.monotonic() - t0) < timeout:
+        positions = _zero_feedback_positions(node)
+        if positions is None:
+            stable_enter_t = None
+        else:
+            last_max_abs_pos = float(np.max(np.abs(positions[indices])))
+            if last_max_abs_pos <= POINT_ARRIVAL_TOL:
                 if stable_enter_t is None:
                     stable_enter_t = time.monotonic()
                 elif (time.monotonic() - stable_enter_t) >= float(ZERO_CALIBRATE_STABLE_SEC):
-                    success = True
-                    break
+                    return True, last_max_abs_pos
             else:
                 stable_enter_t = None
-            time.sleep(0.02)
-        if success:
-            return {
-                "success": True,
-                "attempts": attempts,
-                "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
-                "last_max_abs_pos": last_max_abs_pos,
-            }
-        print(
-            "[WARN] 回0超时，继续重试回0... "
-            f"(attempt={attempts}/{int(ZERO_CALIBRATE_MAX_ATTEMPTS)})"
-        )
-    return {
-        "success": False,
-        "attempts": attempts,
-        "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
-        "last_max_abs_pos": last_max_abs_pos,
-    }
+        time.sleep(CONTROL_PERIOD_SEC)
+    return False, last_max_abs_pos
+
+
+def _run_zero_calibration(node: DataCollectionNode, defaults_hand):
+    _run_zero_prerelease(node, defaults_hand)
+    extensor_motor_ids = [int(HAND_MOTOR_MAP[node.hand][finger]["extensor"])
+                          for finger in ("index", "middle", "ring", "little")]
+    positions = _zero_feedback_positions(node)
+    attempts = 0
+    last_max_abs_pos = None
+    stage = "extensor_first"
+    matrix = _build_zero_matrix(defaults_hand)
+    # Keep the same extensor feedforward while the remaining motors return.
+    for mid in extensor_motor_ids:
+        matrix[mid - 1][2] = float(ZERO_EXTENSOR_TOR_A)
+    extensor_matrix = _build_hold_current_matrix(defaults_hand, positions) if positions is not None else None
+    if extensor_matrix is not None:
+        for mid in _zero_flexor_motor_ids(node.hand) + _zero_sway_motor_ids(node.hand):
+            extensor_matrix[mid - 1] = [0.0, 0.0, float(ZERO_FLEX_SWAY_TIGHTEN_TOR_A), 0.0, 0.0]
+        for mid in extensor_motor_ids:
+            extensor_matrix[mid - 1] = matrix[mid - 1][:]
+        print(f"[calibrate] 四指伸肌先位控回0: motors={extensor_motor_ids}, "
+              f"tor={float(ZERO_EXTENSOR_TOR_A):.3f}A；四指屈肌/侧摆纯电流 "
+              f"{float(ZERO_FLEX_SWAY_TIGHTEN_TOR_A):.3f}A 张紧 kp/kd=0；拇指和腕部保持位置。")
+        while attempts < int(ZERO_CALIBRATE_MAX_ATTEMPTS):
+            attempts += 1
+            if stage == "extensor_first":
+                node.set_command_matrix(extensor_matrix)
+                reached, last_max_abs_pos = _wait_zero_positions(node, extensor_motor_ids)
+                if not reached:
+                    print(f"[WARN] 四指伸肌回0未到位，不启动其他电机回0 "
+                          f"(attempt={attempts}/{int(ZERO_CALIBRATE_MAX_ATTEMPTS)})")
+                    continue
+                stage = "all_motors"
+                print("[calibrate] 四指伸肌已到位，其他电机开始位控回0。")
+            node.set_command_matrix(matrix)
+            reached, last_max_abs_pos = _wait_zero_positions(node, list(range(1, MOTOR_COUNT + 1)))
+            if reached:
+                return {"success": True, "attempts": attempts,
+                        "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
+                        "last_max_abs_pos": last_max_abs_pos}
+            print(f"[WARN] 全手回0超时，继续重试 "
+                  f"(attempt={attempts}/{int(ZERO_CALIBRATE_MAX_ATTEMPTS)})")
+    else:
+        print("[WARN] 放线结束后无有效反馈，取消伸肌及其他电机回0。")
+
+    # Stop the failed return at measured positions; do not keep releasing lines.
+    positions = _zero_feedback_positions(node)
+    node.set_command_matrix(_build_hold_current_matrix(defaults_hand, positions)
+                            if positions is not None else _build_uniform_current_matrix(0.0))
+    return {"success": False, "attempts": attempts,
+            "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
+            "last_max_abs_pos": last_max_abs_pos, "failed_stage": stage}
 
 
 def _normalize_target_fingers(target_finger_raw: str) -> list[str]:
     v = (target_finger_raw or "all").strip().lower()
     if v in ("", "all", "*"):
         return list(FINGER_ORDER_FIXED)
-    if v not in FINGER_ORDER_FIXED:
+    fingers = [finger.strip() for finger in v.split(",")]
+    if any(finger not in FINGER_ORDER_FIXED for finger in fingers):
         raise ValueError(
             f"Unsupported target_finger={target_finger_raw!r}, "
-            f"expected one of: all/{'/'.join(FINGER_ORDER_FIXED)}"
+            f"expected all or a comma-separated list of: {'/'.join(FINGER_ORDER_FIXED)}"
         )
-    return [v]
+    return list(dict.fromkeys(fingers))
 
 
 def _prepare_output_dirs(base_dir: Path, hand: str, fingers: list[str]):
@@ -2541,10 +2772,15 @@ def _finger_done(
     return bool(combo_done and mode_done)
 
 
+def _combo_base_quota(finger: str):
+    return QUOTA_BASE_PER_COMBO if finger == "thumb" else FOUR_FINGER_QUOTA_BASE_PER_COMBO
+
+
 def _build_finger_quota_plan(finger: str, combos: list[ComboSpec]):
-    nominal_total = int(len(combos) * QUOTA_BASE_PER_COMBO)
+    base_quota = _combo_base_quota(finger)
+    nominal_total = int(len(combos) * base_quota)
     ratio = max(0.0, float(QUOTA_FLOAT_RATIO))
-    base_target = {c.combo_id: float(QUOTA_BASE_PER_COMBO) for c in combos}
+    base_target = {c.combo_id: float(base_quota) for c in combos}
 
     if finger == "thumb":
         on_combos = [c for c in combos if str(c.opposition_mode).lower() == "on"]
@@ -2565,7 +2801,7 @@ def _build_finger_quota_plan(finger: str, combos: list[ComboSpec]):
     combo_min = {}
     combo_max = {}
     for c in combos:
-        tgt = max(1.0, float(base_target.get(c.combo_id, QUOTA_BASE_PER_COMBO)))
+        tgt = max(1.0, float(base_target.get(c.combo_id, base_quota)))
         lo = max(1, int(round(tgt * (1.0 - ratio))))
         hi = max(lo, int(round(tgt * (1.0 + ratio))))
         combo_min[c.combo_id] = lo
@@ -3415,6 +3651,7 @@ def _collect_one_manual_point(
         "timeout": outcome["timeout"],
         "move_elapsed_sec": outcome["move_elapsed_sec"],
         "max_error": outcome["max_error"],
+        **_point_motion_metadata(outcome),
         "active_mode": used_mode,
         "active_motors": [int(mid) for mid in target_plan.active_motors],
         "zero_calib_state": str(calib_state["zero_calib_state"]),
@@ -3528,6 +3765,7 @@ def _collect_one_manual_target_point(
         point_tolerance=POINT_ARRIVAL_TOL,
         point_id=point_id,
         nominal_total=nominal_total,
+        preuniform=(log_prefix == "preuniform"),
     )
 
     finger_state["combo_counts"][combo.combo_id] += 1
@@ -3545,6 +3783,7 @@ def _collect_one_manual_target_point(
         "timeout": outcome["timeout"],
         "move_elapsed_sec": outcome["move_elapsed_sec"],
         "max_error": outcome["max_error"],
+        **_point_motion_metadata(outcome),
         "active_mode": used_mode,
         "active_motors": active_motors,
         "zero_calib_state": str(calib_state["zero_calib_state"]),
@@ -3896,6 +4135,7 @@ def _finger_state_to_resume_payload(finger_state: dict):
             continue
     return {
         "finger": str(finger_state.get("finger", "")),
+        "quota_base_per_combo": int(_combo_base_quota(finger_state.get("finger", ""))),
         "point_id": int(finger_state.get("point_id", 0)),
         "unreached": [int(v) for v in list(finger_state.get("unreached", []))],
         "combo_counts": {str(k): int(v) for k, v in dict(finger_state.get("combo_counts", {})).items()},
@@ -3933,6 +4173,13 @@ def _apply_finger_resume_payload(finger_state: dict, payload: dict):
     if not isinstance(payload, dict):
         return
 
+    # Older checkpoints used 2000 for every finger and did not store this field.
+    previous_base = int(payload.get("quota_base_per_combo", 2000))
+    quota_changed = previous_base != int(_combo_base_quota(finger_state.get("finger", "")))
+    if quota_changed:
+        print(f"[resume] finger={finger_state.get('finger', '')} quota/combo "
+              f"{previous_base} -> {_combo_base_quota(finger_state.get('finger', ''))}; keeping collected counts.")
+
     def _merge_int_map(dst_name: str, src_name: str):
         dst = finger_state.get(dst_name, {})
         src = payload.get(src_name, {})
@@ -3955,16 +4202,13 @@ def _apply_finger_resume_payload(finger_state: dict, payload: dict):
                 dst[k] = str(src[k])
 
     _merge_int_map("combo_counts", "combo_counts")
-    _merge_int_map("combo_min", "combo_min")
-    _merge_int_map("combo_max", "combo_max")
-    _merge_int_map("combo_target_none_consec", "combo_target_none_consec")
-    _merge_int_map("combo_cooldown", "combo_cooldown")
-    _merge_int_map("combo_stall_zero_retry_count", "combo_stall_zero_retry_count")
-    _merge_int_map("combo_stall_over_ratio_hit_count", "combo_stall_over_ratio_hit_count")
     _merge_int_map("mode_counts", "mode_counts")
-    _merge_int_map("mode_min", "mode_min")
-    _merge_int_map("mode_max", "mode_max")
-    _merge_str_map("combo_stall_finish_reason", "combo_stall_finish_reason")
+    if not quota_changed:
+        for name in ("combo_min", "combo_max", "combo_target_none_consec", "combo_cooldown",
+                     "combo_stall_zero_retry_count", "combo_stall_over_ratio_hit_count",
+                     "mode_min", "mode_max"):
+            _merge_int_map(name, name)
+        _merge_str_map("combo_stall_finish_reason", "combo_stall_finish_reason")
 
     try:
         finger_state["point_id"] = int(payload.get("point_id", finger_state.get("point_id", 0)))
@@ -3992,6 +4236,12 @@ def _apply_finger_resume_payload(finger_state: dict, payload: dict):
         payload.get("edge_enhancement_done", finger_state.get("edge_enhancement_done", False))
     )
     finger_state["done"] = bool(payload.get("done", finger_state.get("done", False)))
+    if quota_changed:
+        # Reassess completion and stall recovery against the freshly built quotas.
+        finger_state["done"] = False
+        finger_state["finger_reopen_round"] = 0
+        finger_state["finger_reopen_no_progress_round"] = 0
+        finger_state["finger_reopen_last_point_id"] = finger_state.get("point_id", 0)
 
     cov_src = payload.get("combo_coverage_counts", {})
     if isinstance(cov_src, dict):
@@ -5460,7 +5710,7 @@ def main():
                     stall_ratio = max(0.0, float(COMBO_STALL_COMPLETE_RATIO))
                     stall_complete_hit_windows = max(1, int(COMBO_STALL_COMPLETE_HIT_WINDOWS))
                     stall_max_zero_retry = max(0, int(COMBO_STALL_MAX_ZERO_RETRY))
-                    combo_target_now = max(1.0, float(combo_target.get(cid, QUOTA_BASE_PER_COMBO)))
+                    combo_target_now = max(1.0, float(combo_target.get(cid, _combo_base_quota(finger))))
                     combo_ratio_now = float(combo_counts[cid]) / combo_target_now
 
                     if n_fail >= stall_trigger:
@@ -5785,6 +6035,7 @@ def main():
                     "timeout": outcome["timeout"],
                     "move_elapsed_sec": outcome["move_elapsed_sec"],
                     "max_error": outcome["max_error"],
+                    **_point_motion_metadata(outcome),
                     "active_mode": used_mode,
                     "active_motors": [int(mid) for mid in target_plan.active_motors],
                     "zero_calib_state": zero_calib_state,
