@@ -12,3 +12,6 @@ wandb/
 # Local credentials and environment settings.
 .env
 .env.*
+
+# Local motor test logs, workspace captures, and data collection output.
+/scripts/motor_test_logs/
