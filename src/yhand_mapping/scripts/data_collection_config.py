@@ -18,6 +18,14 @@ MOVE_TIMEOUT_SEC = 3.0
 # while leaving most of MOVE_TIMEOUT_SEC available for the actual movement.
 ARRIVAL_CONFIRM_SEC = 1.0
 RETURN_ZERO_TIMEOUT_SEC = 3.0
+# After arrival or timeout, keep all motors at this current through tightening,
+# the position stability gate, and result sampling (all kp/kd=0).
+POST_ARRIVAL_TIGHTEN_TOR_A = -0.08
+POST_ARRIVAL_TIGHTEN_SEC = 3.0
+# Require a continuous stable position window on every current-finger motor
+# without switching currents before or after the gate.
+POSITION_STABLE_WINDOW_SEC = 2.0
+POSITION_STABLE_MAX_RANGE_DEG = 3.0
 # Post-move stabilization duration (always executed for reached/timeout).
 STABLE_HOLD_SEC = 2.0
 RESULT_WINDOW_START_SEC = 1.0
@@ -41,7 +49,10 @@ ANTAGONIST_RELEASE_ENABLE = True
 # Points with an active extensor: release this finger's flexors and both sway
 # motors while the extensor moves, then move the remaining target motors.
 EXTENSOR_FIRST_ENABLE = True
-EXTENSOR_FIRST_RELEASE_CURRENT_A = 0.08
+EXTENSOR_FIRST_RELEASE_CURRENT_A = 0.05
+# Active extensor position control keeps the per-motor kp/kd and uses this
+# fixed feedforward current during movement and target holding.
+ACTIVE_EXTENSOR_FEEDFORWARD_TOR_A = -0.08
 # Each movement stage gets its own timeout; there is no prerelease dwell.
 EXTENSOR_FIRST_TIMEOUT_SEC = MOVE_TIMEOUT_SEC
 # Deprecated compatibility knobs:
@@ -49,10 +60,6 @@ EXTENSOR_FIRST_TIMEOUT_SEC = MOVE_TIMEOUT_SEC
 # Keep these for backward compatibility; they are not used by planner logic.
 ANTAGONIST_RELEASE_TOR = 0.5
 ANTAGONIST_RELEASE_SEC = 0.4
-# Fixed tor for post-release rewind-to-zero motors.
-REWIND_TO_ZERO_TOR = -0.1
-# Fixed rewind dwell time after release phase (seconds).
-REWIND_TO_ZERO_SEC = 1.0
 # Data-collection zero return: release four-finger flexors/sway for 1 s,
 # then tension them at -0.03 A while extensors return first, then all motors.
 ZERO_SWAY_RELEASE_TOR_A = 0.08
@@ -179,7 +186,7 @@ DATA_COLLECTION_RELEASE_SEC_PER_DEG_BY_ACTIVE_TARGET = {'left': {1: {28: 0.00018
 
 # Planning / random walk
 QUOTA_BASE_PER_COMBO = 2000
-FOUR_FINGER_QUOTA_BASE_PER_COMBO = 1000
+FOUR_FINGER_QUOTA_BASE_PER_COMBO = 600
 QUOTA_FLOAT_RATIO = 0.10
 # Thumb opposition sampling preference:
 # when thumb has both opposition_mode on/off combos, allocate about this ratio to "on".

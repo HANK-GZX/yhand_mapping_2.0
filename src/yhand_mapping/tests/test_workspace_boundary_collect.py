@@ -156,6 +156,85 @@ def test_overwrite_clears_current_finger_only(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("hand", ["left", "right"])
+def test_separate_runs_keep_previous_fingers_and_collector_can_load_them(monkeypatch, tmp_path, hand):
+    hand_dir = tmp_path / "motor_test_logs/workspace_boundaries" / hand
+    saved = {}
+    for option, finger in [("2", "index"), ("3", "middle"), ("4", "ring")]:
+        configure_main(monkeypatch, tmp_path, hand, [option, "r", "f", "x"])
+        collect.main()
+        model = json.loads((hand_dir / "boundary_models.json").read_text())
+        for previous_finger, combos in saved.items():
+            assert {key:value for key,value in model["combos"].items()
+                    if value["finger"] == previous_finger} == combos
+        saved[finger] = {key:value for key,value in model["combos"].items() if value["finger"] == finger}
+        assert all(value["status"] == "ok" for value in saved[finger].values())
+        assert model["updated_fingers"] == [finger]
+        index = json.loads((hand_dir / "run_index.json").read_text())
+        assert all(index["finger_counts"][f] == 50 for f in saved)
+    _, loaded = data_collection._load_boundary_json(hand_dir / "boundary_models.json", hand)
+    accepted = data_collection._build_combo_specs(loaded)
+    assert {finger:len(accepted[finger]) for finger in saved} == dict(index=6, middle=6, ring=4)
+    backups = sorted((hand_dir / "backups").glob("boundary_models_*.json"))
+    assert len(backups) == 2
+    assert all(json.loads(path.read_text())["hand"] == hand for path in backups)
+
+
+def test_fit_without_current_samples_keeps_saved_models_and_index(monkeypatch, tmp_path):
+    configure_main(monkeypatch, tmp_path, "left", ["2", "r", "f", "x"])
+    collect.main()
+    hand_dir = tmp_path / "motor_test_logs/workspace_boundaries/left"
+    before = {name:(hand_dir/name).read_bytes() for name in ["boundary_models.json", "run_index.json"]}
+    configure_main(monkeypatch, tmp_path, "left", ["f", "x"])
+    collect.main()
+    assert {name:(hand_dir/name).read_bytes() for name in before} == before
+    assert not (hand_dir / "backups").exists()
+
+
+def test_clear_in_later_run_only_invalidates_selected_finger(monkeypatch, tmp_path):
+    configure_main(monkeypatch, tmp_path, "left", ["2", "r", "b", "3", "r", "f", "x"])
+    collect.main()
+    hand_dir = tmp_path / "motor_test_logs/workspace_boundaries/left"
+    before = json.loads((hand_dir / "boundary_models.json").read_text())["combos"]
+    configure_main(monkeypatch, tmp_path, "left", ["2", "o", "f", "x"])
+    collect.main()
+    after = json.loads((hand_dir / "boundary_models.json").read_text())["combos"]
+    assert all(model["status"] == "insufficient_points" for model in after.values() if model["finger"] == "index")
+    assert {k:v for k,v in after.items() if v["finger"] == "middle"} == {
+        k:v for k,v in before.items() if v["finger"] == "middle"}
+    index = json.loads((hand_dir / "run_index.json").read_text())
+    assert index["finger_counts"]["index"] == 0 and index["finger_counts"]["middle"] == 25
+    assert not list((hand_dir / "raw/index").glob("session_*.csv"))
+    assert len(list((hand_dir / "raw/middle").glob("session_*.csv"))) == 1
+
+
+@pytest.mark.parametrize("old_content", ["broken json", '{"hand":"right","combos":{}}',
+                                      '{"hand":"left","combos":null}'])
+def test_invalid_saved_model_is_not_overwritten(tmp_path, old_content):
+    path = tmp_path / "boundary_models.json"
+    path.write_text(old_content)
+    with pytest.raises((ValueError, json.JSONDecodeError)):
+        collect._save_boundary_models(path, {"hand":"left", "combos":{}}, {"middle"})
+    assert path.read_text() == old_content
+    assert not (tmp_path / "backups").exists()
+
+
+def test_atomic_model_write_failure_keeps_old_file(monkeypatch, tmp_path):
+    path = tmp_path / "boundary_models.json"
+    original = {"hand":"left", "combos":{"index_deep_in":{"finger":"index", "status":"ok"}}}
+    path.write_text(json.dumps(original))
+
+    def fail_replace(*args):
+        raise OSError("simulated failed replacement")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated"):
+        collect._save_boundary_models(path, {"hand":"left", "combos":{}}, {"middle"})
+    assert json.loads(path.read_text()) == original
+    assert json.loads(next((tmp_path / "backups").glob("*.json")).read_text()) == original
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("hand", ["left", "right"])
 def test_default_launch_has_only_hand_argument_and_uses_canonical_script(monkeypatch, tmp_path, hand):
     from launch import LaunchContext
     from launch.actions import DeclareLaunchArgument, ExecuteProcess, TimerAction

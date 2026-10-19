@@ -53,7 +53,9 @@ Launch 读取 `config/left_hand_device_config.json` 或 `config/right_hand_devic
 
 每根手指的所有组合共用该手指采集的样本。拇指的 opp_off/opp_on 保留原来的控制模式标签，两者使用相同采样点，不分别录制。
 
-**启动时不自动读取已有 CSV 或模型。** 本次进程内按手指累积样本，`f` 覆盖默认目录中的 `boundary_models.json`；未采集的组合标记为 `insufficient_points`。退出不会自动拟合，完成后需要按 `f`。
+**启动时不自动把历史 CSV 加入本次样本。** 本次进程内按手指累积样本，`f` 只更新本次新增采样或明确清空过的手指，并从已有 `boundary_models.json` 保留其他手指的模型。例如先采食指、下次只采中指，两根手指的模型都会保留。没有新增或清空样本时按 `f` 不改文件。退出不会自动拟合，完成后需要按 `f`。
+
+同一手指在新进程内重新采集时，使用本次样本重新拟合，不混入历史 CSV；本次点数不足仍会把该手指标记为 `insufficient_points`。`o` 清空当前手指后按 `f`，也只使该手指的模型失效。每次替换模型前自动备份旧文件，再以临时文件原子替换，避免写入中断损坏原文件。
 
 ## 默认保存路径及数采使用
 
@@ -64,6 +66,7 @@ src/yhand_mapping/scripts/motor_test_logs/workspace_boundaries/<hand>/
 ├── raw/<finger>/session_YYYYmmdd_HHMMSS_xxxxxx.csv
 ├── run_index.json
 ├── boundary_models.json
+├── backups/boundary_models_YYYYmmdd_HHMMSS_xxxxxx.json
 └── plots/panel_<finger>_YYYYmmdd_HHMMSS.png
 ```
 
@@ -71,9 +74,9 @@ src/yhand_mapping/scripts/motor_test_logs/workspace_boundaries/<hand>/
 
 之前单独组合采集的图另行保留在 `<hand>/plots/per_combo_comparison/`，保持原文件名，便于与 `plots/` 下的同时张紧采集图对比。重新采集、清空本指数据及拟合不会覆盖该对比目录，原备份也仍保留。
 
-`data_collection_main.py` 默认读取同一路径的 `boundary_models.json`，因此数采无需额外指定 `--boundary-path`。它在启动时加载模型，重新拟合后需要重启数采。
+`data_collection_main.py` 默认读取同一路径的 `boundary_models.json`，因此数采无需额外指定 `--boundary-path`。只使用其中 `status="ok"` 的组合，不会自动从历史 CSV 恢复。它在启动时加载模型，重新拟合后需要重启数采。
 
-CSV 保存系统时间和全部 28 路 `pos_i/vel_i/tor_i` 反馈。`run_index.json` 保存每根手指的实际样本数、投影到每个二维组合的点数和 `combo_axis_motors`。
+CSV 保存系统时间和全部 28 路 `pos_i/vel_i/tor_i` 反馈。`run_index.json` 保存每根手指最近一次采集的样本数、投影到每个二维组合的点数和 `combo_axis_motors`；本次未更新的手指保留原计数。模型顶层 `updated_fingers` 标识最近一次拟合更新的手指。
 
 JSON 保留 `collection_mode="per_finger_simultaneous"`、`tension_current_scope="all_collection"` 和 28 路张紧电流。各四指组合的 `collection.mode="per_finger"`，记录所用电流和样本归属；组合 ID、坐标轴、网格格式与数采兼容。
 

@@ -77,6 +77,20 @@ ros2 launch yhand_mapping data_collection_left_independent_launch.py target_fing
 ros2 launch yhand_mapping data_collection_launch.py target_hand:=left target_finger:=all
 ```
 
+### 2.5 设置每个 combo 的采样点数
+
+```bash
+cd /home/yhand-demo/Yhand_Mapping_2.0
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 launch yhand_mapping data_collection_left_independent_launch.py \
+  target_finger:=middle \
+  points_per_combo:=50 \
+  resume:=false
+```
+
+在 controller 控制终端输入 `a` 并回车启动 worker。`points_per_combo=50` 将中指六个 combo 的基础配额各设为 50，名义总数为 300；默认值 `0` 沿用配置文件中的配额。该参数仅设置配额，预均匀采样、额外补采、过程记录和原有完成判断保持原来的逻辑，因此实际总点数可能超过 300。开始新配额采集时使用 `resume=false`；恢复旧检查点会沿用检查点保存的配额。
+
 ---
 
 ## 3. 独立 launch 的硬隔离内容
@@ -97,6 +111,7 @@ ros2 launch yhand_mapping data_collection_launch.py target_hand:=left target_fin
 常用参数：
 
 - `target_finger`：`all|thumb|index|middle|ring|little`，也支持逗号分隔列表，按输入顺序采集
+- `points_per_combo`：左手独立 launch 的每 combo 点数配额，默认 `0` 沿用配置，正整数覆盖每组配额；其他阶段保持原来的逻辑。脚本参数为 `--points-per-combo`。
 - `start_glove_node`：是否启动手套发布（默认 `true`）
 - `disable_glove_required`：手套不就绪是否允许继续启动（默认 `true`）
 - `collect_in_terminal`：`true|false|auto`（controller 是否在独立 `gnome-terminal` 中运行）
@@ -258,7 +273,7 @@ ros2 launch
 
 ### 8.1 quota 和 mode 计划
 
-- 四指每个 combo 的名义目标：`FOUR_FINGER_QUOTA_BASE_PER_COMBO=1000`
+- 四指每个 combo 的名义目标：`FOUR_FINGER_QUOTA_BASE_PER_COMBO=600`
 - 拇指每个 combo 的基础配额：`QUOTA_BASE_PER_COMBO=2000`，再按 `opp_on/off` 比例分配
 - 每个 combo 上下浮动：`QUOTA_FLOAT_RATIO`
 - thumb 有 `opp_on/off` 比例约束：`THUMB_OPPOSITION_ON_RATIO`
@@ -273,12 +288,14 @@ ros2 launch
 
 由 `DISABLE_RANDOM_SINGLE_MOTOR_MODES=True` 控制。
 
-四指保留 ±10% 浮动，每个 combo 配额范围为 900–1100 点。完整组合下，
-食指和中指各 6 个 combo，名义目标各 6000 点；无名指和小指各 4 个 combo，名义目标各 4000 点。
+四指保留 ±10% 浮动，每个 combo 配额范围为 540–660 点。完整组合下，
+食指和中指各 6 个 combo，名义目标各 3600 点；无名指和小指各 4 个 combo，名义目标各 2400 点。
 预均匀采样计入配额，每指额外 500 点的屈曲边界增强仍保留，因此最终总点数可能超过基础配额。
 恢复旧断点时保留已采点数，并采用新配额重新判断完成状态。
 
 ### 8.2 preuniform（单电机预均匀）
+
+预采入口不再额外执行一次全手回0，直接从当前位置运动到首个均匀目标。非伸肌以 0 为目标生成起点，首点为负步长（如 −15°），不包含单独的 0 位采样点；伸肌从当前位置逐步采到 0。保留原来的目标序列以及后续周期回0逻辑。
 
 `PRE_RANDOM_UNIFORM_ENABLE=True` 时执行，目的是先覆盖单轴基础样本：
 
@@ -297,7 +314,7 @@ ros2 launch
 
 主动电机立即开始位控，放线与其运动同时执行。主动电机目标误差在 **±14°** 内连续 **1 秒**确认到位，运动 **3 秒**超时。
 屈肌和侧摆预采不再使用按位移计算的短暂放线及 `−0.1 A` 回收时序。
-随后全部恢复默认纯电流张紧，沿用第 1–2 秒的结果采集窗口。
+到位或超时后，都先执行第 9.3 节的张紧过程：全部 28 路以 **−0.08 A**、`kp/kd=0` 张紧 **3 秒**，并保持相同电流等待本指所有电机连续 2 秒的位置范围各自 **≤3°**；通过后继续保持 **−0.08 A**，重新计时采样，沿用第 1–2 秒的结果采集窗口；超时点仍保留 `reached=false, timeout=true`。
 参数为 `PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A`、`PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A` 和 `PRE_RANDOM_PASSIVE_RELEASE_SEC`，
 伸肌预采使用 `PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A`、`PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC` 和 `PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A`，
 受 `ANTAGONIST_RELEASE_ENABLE` 控制。该调整仅用于 `preuniform`；随机组合及人工补点沿用原有策略。
@@ -355,29 +372,33 @@ ros2 launch
 每个点在终端里会看到阶段流转：
 
 - 含主动伸肌的点：`extensor_first` → `remaining_targets`（有其他目标时）
-- 其他点：`move`、`release+rewind` / `rewind` / `target_hold`（按被动电机时间线）
+- 其他点：`move`、`release` / `target_hold`（按被动电机放线时间线）
 - `arrived`（达到阈值并稳定 `ARRIVAL_CONFIRM_SEC`）
-- `stable`（稳定采样阶段）
+- `tighten`（到位或超时后，全部 28 路以 **−0.08 A** 纯电流张紧 **3 秒**，全部 `kp/kd=0`）
+- `position_settle`（全部 28 路继续保持 **−0.08 A**；等待本指所有电机连续 **2 秒**的位置最大值−最小值各自 **≤3°**）
+- `stable`（全部 28 路继续保持 **−0.08 A** 采样 **2 秒**，不切回默认电流）
 
 ### 9.1 被动电机策略
 
 当点的主动电机中包含本指伸肌时（左右手均支持，包括拇指短伸、长伸及伸肌单电机预采点），默认采用分阶段运动：
 
-1. 伸肌立即位控到目标；本指全部屈肌和两路侧摆同时持续以 **+0.08 A** 放线，`kp/kd=0`，包括该 combo 的主动侧摆。不设置独立的放线等待时间。其他待运动目标（例如拇指对掌）暂时位控保持点开始时的位置。
-2. 伸肌反馈在 **±14°** 内连续保持 **1 秒**后，保持伸肌位置目标，并让剩余主动电机位控到各自目标。本指未参与目标位控的屈肌和侧摆继续以 **+0.08 A** 放线。
-3. 全部主动电机达到同样的到位条件后，全部 28 路恢复默认纯电流张紧，再按原来的稳定结果窗口采集。该策略不执行运动期间的 `−0.1 A` 回收。
+主动伸肌位控时，前馈电流固定为 **−0.08 A**（`ACTIVE_EXTENSOR_FEEDFORWARD_TOR_A`），`kp/kd` 保留各电机默认值。伸肌运动、到位后保持目标，以及单电机预采和关闭放线辅助后的伸肌位控均使用此值；实际反馈电流仍随位置和速度误差变化。其他主动电机沿用原有前馈配置。
 
-伸肌阶段最多等待 **3 秒**，其后的组合到位阶段另有 **3 秒**。伸肌超时不会开始侧摆目标运动；任何阶段超时都会恢复默认张紧并沿用原来的超时点记录方式，`reached=false`。缺失、过期或非有限的位置反馈不能完成到位确认。
+1. 伸肌立即位控到目标；本指全部屈肌和两路侧摆同时持续以 **+0.05 A** 放线，`kp/kd=0`，包括该 combo 的主动侧摆。不设置独立的放线等待时间。其他待运动目标（例如拇指对掌）暂时位控保持点开始时的位置。
+2. 伸肌反馈在 **±14°** 内连续保持 **1 秒**后，继续位控保持伸肌目标，并让 combo 中剩余主动电机位控到各自目标。本指其余所有电机切为 **`kp=kd=I=0`**（含非主动屈肌、侧摆，以及拇指非主动伸肌/对掌），保持到本点到位或超时；其他手指和腕部继续默认纯电流张紧。
+3. 全部主动电机达到同样的到位条件后，全部 28 路以 **−0.08 A** 纯电流张紧 **3 秒**，全部 `kp/kd=0`。随后保持同一电流，通过本指全部电机的位置稳定判断后，继续保持 **−0.08 A** 按原来的结果窗口采集。三个阶段之间不切换电流。
+
+伸肌阶段最多等待 **3 秒**，其后的组合到位阶段另有 **3 秒**。伸肌超时不会开始侧摆目标运动；任何阶段超时都会先执行上述 3 秒张紧，随后保持全部 28 路 **−0.08 A**，通过位置稳定判断后以相同电流采样，仍记录 `reached=false, timeout=true`。缺失、过期或非有限的位置反馈不能完成到位确认。
 
 参数位于 `data_collection_config.py`：`EXTENSOR_FIRST_ENABLE`、`EXTENSOR_FIRST_RELEASE_CURRENT_A`、`EXTENSOR_FIRST_TIMEOUT_SEC`。该策略还受 `ANTAGONIST_RELEASE_ENABLE` 控制；关闭辅助时保持原来的同时位控方式。点的 JSON 元数据增加 `motion_policy`、`extensor_stage_reached`、`extensor_stage_elapsed_sec`、`timeout_stage`，用于区分执行方式和失败阶段。
 
-其他点中，同手指非主动电机和其他手指都保持“纯电流张紧”行：`[0,0,tor,0,0]`。
+普通非伸肌点中，同手指未参与放线的非主动电机和其他手指保持默认“纯电流张紧”行：`[0,0,tor,0,0]`。
 
 主动电机集合的对侧电机会按 `active->target` 映射执行：
 
 - 放线：`DATA_COLLECTION_RELEASE_TOR_*`
-- 收线：`REWIND_TO_ZERO_TOR=-0.1`
-- 再切回默认张紧 tor
+- 放线结束后直接切回默认张紧 tor
+- 到位或超时后执行第 9.3 节的统一 3 秒张紧；运动期间不再执行 `−0.1 A`、1 秒的额外回收
 
 ### 9.2 到位与超时
 
@@ -388,10 +409,18 @@ ros2 launch
 
 ### 9.3 稳定结果窗口
 
-无论 reached 或 timeout，都进入稳定阶段采样。
+到位或超时后，都先让全部 28 路电机以 **−0.08 A**（`POST_ARRIVAL_TIGHTEN_TOR_A`）纯电流张紧 **3 秒**，全部 `kp/kd=0`。主动与非主动电机、屈肌与其他电机均使用同一电流。
+
+3 秒从上述张紧命令矩阵提交后开始计时，由 `POST_ARRIVAL_TIGHTEN_SEC` 控制；不等待反馈确认电流生效。随后全部 28 路继续保持 **−0.08 A** 等待位置稳定；判定通过后仍以同一电流采样，不再恢复各电机默认张紧电流，保留原始到位或超时标记。张紧及位置稳定等待均支持暂停、停止和急停；中断时不继续采样，也不覆盖中断命令。
+
+位置稳定判断覆盖**当前手指全部电机，包括主动和非主动电机**，不检查其他手指或腕部。按 `PROCESS_SAMPLE_HZ` 读取 feedback 位置，在连续 **2 秒**窗口（`POSITION_STABLE_WINDOW_SEC`）内，每台电机的位置 **最大值−最小值 ≤3°**（`POSITION_STABLE_MAX_RANGE_DEG`）才通过；窗口边界保留一帧覆盖完整时长，因此实际检查窗口可能略长一个采样周期。任一电机超限则继续等待滚动窗口满足条件；反馈缺失、过期或本指位置出现非有限值时清空窗口，重新累计完整的 2 秒。没有等待超时后直接采样的分支。此判断只确认位置变化小，不测量线张力。
+
+点的 JSON 元数据包含 `position_stable_confirmed`、`position_stable_wait_sec`、`position_stable_max_span_deg`、`position_stable_motor_ids`、`position_stable_window_sec`、`position_stable_range_limit_deg`。
 
 - 稳定采样时长：`max(STABLE_HOLD_SEC, RESULT_WINDOW_END_SEC)`
 - 最终 result 使用窗口：`[RESULT_WINDOW_START_SEC, RESULT_WINDOW_END_SEC]`
+- 结果窗口从位置稳定判断通过后重新开始计时，不包含 3 秒张紧和位置稳定等待阶段。
+- CSV 回放的完整过程记录包含张紧、位置稳定等待和采样阶段，并包含实际等待时长对应的时间偏移。
 
 ---
 
@@ -414,7 +443,7 @@ ros2 launch
 
 每次事件都会写入 `zero_calibration_events.csv`。
 
-周期、菜单 `z`、预采启动以及停滞恢复的回0都使用该流程。这里只返回已有零位，不调用 SDK `Set_Zero`；含伸肌 combo 运动时的 **+0.08 A** 放线策略独立保持。
+周期、菜单 `z`、暂停以及停滞恢复的回0都使用该流程。预采启动不再额外执行全手回0。这里只返回已有零位，不调用 SDK `Set_Zero`；含伸肌 combo 运动时采用独立的 **+0.05 A** 放线策略。
 
 ---
 

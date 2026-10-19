@@ -30,11 +30,13 @@ COLORS = {True: "#2878b5", False: "#d9534f"}
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("result_dir", type=Path, help="Single finger's result directory")
-    parser.add_argument("--output-dir", type=Path, help="Default: result_dir/combo_distribution")
+    parser.add_argument("result_dir", type=Path, help="Single finger's result directory or a hand collection directory")
+    parser.add_argument("--output-dir", type=Path, help="Default: input_dir/combo_distribution")
     parser.add_argument("--point-log", type=Path, help="Default: result_dir/../point_log.csv")
     parser.add_argument("--hand", choices=("left", "right"), help="Normally inferred from path")
     parser.add_argument("--finger", choices=FINGERS, help="Normally inferred from path")
+    parser.add_argument("--fingers", nargs="+", choices=FINGERS,
+                        help="Select fingers when input is a hand collection directory")
     parser.add_argument("--combo", nargs="+", help="Plot only these combo IDs")
     parser.add_argument("--reached-only", action="store_true", help="Keep reached=1, timeout=0")
     parser.add_argument("--motor-fields", nargs="+", choices=FIELDS, default=list(FIELDS[:3]))
@@ -43,6 +45,8 @@ def arguments():
     args = parser.parse_args()
     if args.bins < 2 or args.dpi < 1:
         parser.error("--bins must be >=2 and --dpi must be positive")
+    if args.finger and args.fingers:
+        parser.error("Use either --finger or --fingers")
     return args
 
 
@@ -80,6 +84,27 @@ def file_index(folder):
     if not result:
         raise ValueError(f"No point XLSX files in {folder}")
     return result
+
+
+def vector_repetition(points, key):
+    valid = [(p["point_id"], tuple(p[key])) for p in points if np.isfinite(p[key]).all()]
+    counts = Counter(vector for _, vector in valid)
+    if not counts:
+        return {"finite_vector_count": 0, "unique_vector_count": 0}
+    vector, count = counts.most_common(1)[0]
+    longest = {"point_count": 0, "first_point_id": None, "last_point_id": None}
+    previous_vector, previous_id, run_start, run_length = None, None, None, 0
+    for point_id, current in valid:
+        if current == previous_vector and point_id == previous_id + 1:
+            run_length += 1
+        else:
+            run_start, run_length = point_id, 1
+        if run_length > longest["point_count"]:
+            longest = {"point_count": run_length, "first_point_id": run_start, "last_point_id": point_id}
+        previous_vector, previous_id = current, point_id
+    return {"finite_vector_count": len(valid), "unique_vector_count": len(counts),
+            "most_repeated_vector": list(vector), "most_repeated_count": count,
+            "longest_identical_run": longest}
 
 
 def load_points(result_dir, point_log, hand, finger, combo_filter, reached_only):
@@ -143,6 +168,8 @@ def load_points(result_dir, point_log, hand, finger, combo_filter, reached_only)
     report["loaded_point_count"] = len(points)
     report["glove_q_columns_1_based"] = list(range(q_offset + 1, q_offset + 5))
     report["averaging_windows"] = dict(Counter(p["window"] for p in points))
+    report["glove_q_repetition"] = vector_repetition(points, "q")
+    report["glove48_repetition"] = vector_repetition(points, "glove")
     return points, report
 
 
@@ -172,6 +199,13 @@ def finite_limits(values):
     return low - pad, high + pad
 
 
+def quantile_limits(values):
+    finite = values[np.isfinite(values)]
+    if not finite.size:
+        return (-1, 1)
+    return finite_limits(np.percentile(finite, [1, 99]))
+
+
 def histogram(ax, values, reached, edges):
     for status, label in ((True, "reached, no timeout"), (False, "unreached / timeout")):
         subset = values[(reached == status) & np.isfinite(values)]
@@ -195,13 +229,19 @@ def plot_distributions(points, output, hand, finger, fields, bins, dpi):
     combos = sorted({p["meta"]["combo_id"] for p in points})
     all_motor = np.stack([p["motor"] for p in points])
     all_q = np.stack([p["q"] for p in points])
-    pos_limits = {mid: finite_limits(all_motor[:, mid - 1, 0]) for mid in motor_ids}
+    # Position panels show combo axes. Exclude a motor's non-axis positions
+    # from these shared limits; its full distribution stays in the histograms.
+    pos_limits = {mid: finite_limits(np.array([p["motor"][mid - 1, 0] for p in points
+                  if mid in combo_axes(p["meta"]["combo_id"], hand, finger)])) for mid in motor_ids}
     q_limits = [finite_limits(all_q[:, qi]) for qi in range(4)]
     # Shared bins/limits across combos make the plots directly comparable.
     motor_edges = {(mid, field): np.linspace(*finite_limits(all_motor[:, mid - 1, FIELDS.index(field)]), bins + 1)
                    for mid in motor_ids for field in fields}
     q_edges = [np.linspace(*limits, bins + 1) for limits in q_limits]
     overview, axes = plt.subplots(math.ceil(len(combos) / 3), 3, figsize=(16, 4.5 * math.ceil(len(combos) / 3)),
+                                  squeeze=False, layout="constrained")
+    zoom, zoom_axes = plt.subplots(math.ceil(len(combos) / 3), 3,
+                                  figsize=(16, 4.5 * math.ceil(len(combos) / 3)),
                                   squeeze=False, layout="constrained")
     summaries, statistics, point_rows = [], [], []
     for combo, overview_ax in zip(combos, axes.flat):
@@ -222,6 +262,19 @@ def plot_distributions(points, output, hand, finger, fields, bins, dpi):
                         xlabel=x_label, ylabel=y_label, xlim=pos_limits[x_motor], ylim=pos_limits[y_motor])
         overview_ax.legend(fontsize=7)
         overview_ax.grid(alpha=0.2)
+        zoom_ax = zoom_axes.flat[combos.index(combo)]
+        x_zoom, y_zoom = quantile_limits(x), quantile_limits(y)
+        outside = np.isfinite(x) & np.isfinite(y) & (
+            (x < x_zoom[0]) | (x > x_zoom[1]) | (y < y_zoom[0]) | (y > y_zoom[1]))
+        for status, marker in ((True, "o"), (False, "x")):
+            mask = reached == status
+            zoom_ax.scatter(x[mask], y[mask], s=9, alpha=0.45, marker=marker,
+                            color=COLORS[status], linewidths=0.5,
+                            label="reached, no timeout" if status else "unreached / timeout")
+        zoom_ax.set(title=f"{combo} | n={len(group)} | outside zoom={int(outside.sum())}",
+                    xlabel=x_label, ylabel=y_label, xlim=x_zoom, ylim=y_zoom)
+        zoom_ax.legend(fontsize=7)
+        zoom_ax.grid(alpha=0.2)
 
         folder = output / combo
         folder.mkdir(parents=True, exist_ok=True)
@@ -303,24 +356,21 @@ def plot_distributions(points, output, hand, finger, fields, bins, dpi):
         print(f"Plotted {combo}: n={len(group)}, reached/no-timeout={int(reached.sum())}", flush=True)
     for ax in list(axes.flat)[len(combos):]:
         ax.set_visible(False)
+    for ax in list(zoom_axes.flat)[len(combos):]:
+        ax.set_visible(False)
     overview.suptitle(f"{hand} {finger} | measured motor positions | all plotted points are result-window averages")
     save_plot(overview, output / "combo_overview.png", dpi)
+    zoom.suptitle(f"{hand} {finger} | per-combo P01-P99 zoom | axes vary by panel; all points remain in exports")
+    save_plot(zoom, output / "combo_overview_zoom.png", dpi)
     write_csv(output / "combo_summary.csv", summaries)
     write_csv(output / "field_statistics.csv", statistics)
     write_csv(output / "points.csv", sorted(point_rows, key=lambda row: row["point_id"]))
     return summaries
 
 
-def main():
-    args = arguments()
-    result_dir = args.result_dir.expanduser().resolve()
-    finger = args.finger or result_dir.parent.name
-    hand = args.hand or next((side for side in ("left", "right") if f"{side}_hand" in result_dir.parts), None)
-    if hand is None or finger not in FINGERS:
-        raise ValueError("Cannot infer hand/finger; provide --hand and --finger")
-    output = (args.output_dir or result_dir / "combo_distribution").expanduser().resolve()
+def run_result(args, result_dir, output, hand, finger, combo_filter):
     point_log = (args.point_log or result_dir.parent / "point_log.csv").expanduser().resolve()
-    points, report = load_points(result_dir, point_log, hand, finger, args.combo, args.reached_only)
+    points, report = load_points(result_dir, point_log, hand, finger, combo_filter, args.reached_only)
     output.mkdir(parents=True, exist_ok=True)
     report_path = output / "load_report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -331,12 +381,75 @@ def main():
                        "Default includes unreached/timeout points; flags come directly from point_log.csv.",
                        "Motor IDs are interpreted using hand_motor_map.py; values remain in recorded units.",
                        "Histograms, position axes, and glove color scales share limits across selected combos.",
+                       "Shared position limits use only combos where each motor is an x/y axis; histograms include its full distribution.",
+                       "combo_overview_zoom.png uses per-combo P01-P99 limits plus padding and labels the number of points outside each view.",
+                       "glove repetition counts use exact finite values and consecutive numeric point IDs; repeated data is retained.",
                        "std is population standard deviation (ddof=0); non-finite cells are counted as missing."]
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Output: {output}")
     for key in ("missing_glove_point_ids", "missing_motor_point_ids", "unlabelled_point_ids", "invalid_points"):
         if report[key]:
             print(f"WARNING: {key}={len(report[key])}; see load_report.json")
+    return report
+
+
+def main():
+    args = arguments()
+    input_dir = args.result_dir.expanduser().resolve()
+    hand = args.hand or next((side for side in ("left", "right") if f"{side}_hand" in input_dir.parts), None)
+    if hand is None:
+        raise ValueError("Cannot infer hand; provide --hand")
+    output = (args.output_dir or input_dir / "combo_distribution").expanduser().resolve()
+    if (input_dir / "glove_data").is_dir() and (input_dir / "motor_feedback").is_dir():
+        if args.fingers:
+            raise ValueError("--fingers requires a hand collection directory")
+        finger = args.finger or input_dir.parent.name
+        if finger not in FINGERS:
+            raise ValueError("Cannot infer finger; provide --finger")
+        run_result(args, input_dir, output, hand, finger, args.combo)
+        return
+
+    if args.point_log:
+        raise ValueError("--point-log is only supported for a single result directory")
+    available = [finger for finger in FINGERS
+                 if (input_dir / finger / "result" / "glove_data").is_dir()
+                 and (input_dir / finger / "result" / "motor_feedback").is_dir()]
+    selected = set(args.fingers or ([args.finger] if args.finger else available))
+    missing = selected - set(available)
+    if missing:
+        raise ValueError(f"Missing finger result directories: {sorted(missing)}")
+    if not available:
+        raise ValueError(f"No finger result directories under {input_dir}")
+    jobs = [finger for finger in available if finger in selected]
+    if args.combo:
+        unknown = [combo for combo in args.combo
+                   if not any(combo.startswith(f"{finger}_") for finger in jobs)]
+        if unknown:
+            raise ValueError(f"Combos do not belong to selected fingers: {unknown}")
+        jobs = [finger for finger in jobs if any(combo.startswith(f"{finger}_") for combo in args.combo)]
+    reports, combo_rows, finger_rows = [], [], []
+    for finger in jobs:
+        combo_filter = [combo for combo in args.combo if combo.startswith(f"{finger}_")] if args.combo else None
+        print(f"Analyzing {hand} {finger}", flush=True)
+        report = run_result(args, input_dir / finger / "result", output / finger, hand, finger, combo_filter)
+        reports.append(report)
+        combo_rows.extend({"hand": hand, "finger": finger, **row} for row in report["combos"])
+        total = report["loaded_point_count"]
+        reached = sum(row["reached_no_timeout_count"] for row in report["combos"])
+        timeout = sum(row["timeout_count"] for row in report["combos"])
+        finger_rows.append({"hand": hand, "finger": finger, "point_count": total,
+                            "combo_count": len(report["combos"]),
+                            "reached_no_timeout_count": reached, "timeout_count": timeout,
+                            "timeout_ratio": timeout / total,
+                            "output_dir": str(output / finger)})
+    write_csv(output / "collection_combo_summary.csv", combo_rows)
+    write_csv(output / "collection_finger_summary.csv", finger_rows)
+    collection_report = {"input_dir": str(input_dir), "hand": hand,
+                         "point_count": sum(row["point_count"] for row in finger_rows),
+                         "fingers": finger_rows,
+                         "load_reports": [str(output / r["finger"] / "load_report.json") for r in reports]}
+    (output / "collection_report.json").write_text(json.dumps(collection_report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Collection output: {output}", flush=True)
 
 
 if __name__ == "__main__":

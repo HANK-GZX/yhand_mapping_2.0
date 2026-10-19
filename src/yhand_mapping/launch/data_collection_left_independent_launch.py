@@ -98,6 +98,8 @@ def _launch_setup(context):
         HAND,
         "--target-finger",
         target_finger,
+        "--points-per-combo",
+        LaunchConfiguration("points_per_combo").perform(context),
         "--cmd-topic",
         COMMAND_TOPIC,
         "--feedback-topic",
@@ -261,6 +263,11 @@ def generate_launch_description():
                 "start_glove_node",
                 default_value="true",
                 description="Start glove publisher (minimal_example_dual_stream_commented.py).",
+            ),
+            DeclareLaunchArgument(
+                "points_per_combo",
+                default_value="0",
+                description="Override point quota per combo. 0 uses configured quotas; other stages are unchanged.",
             ),
             DeclareLaunchArgument(
                 "disable_glove_required",

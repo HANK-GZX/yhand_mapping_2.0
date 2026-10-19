@@ -2,6 +2,8 @@
 import argparse
 import csv
 import json
+import shutil
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -645,22 +647,70 @@ def _save_session_csv(path: Path, samples):
             writer.writerow(row)
 
 
-def _save_run_index(path: Path, hand: str, samples_by_finger, model_specs):
+def _read_saved_workspace_json(path: Path, hand: str):
+    if not path.exists():
+        return {}
+    obj = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(obj, dict) or obj.get("hand") != hand:
+        raise ValueError(f"Invalid saved workspace or hand mismatch: {path}")
+    return obj
+
+
+def _write_workspace_json(path: Path, obj, backup_existing=False):
+    content = json.dumps(obj, ensure_ascii=False, indent=2, allow_nan=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                     prefix=f".{path.stem}_", suffix=".tmp", delete=False) as stream:
+        temporary = Path(stream.name)
+        stream.write(content)
+    try:
+        if backup_existing and path.exists():
+            backup_dir = path.parent / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            backup = backup_dir / f"{path.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+            shutil.copy2(path, backup)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _save_boundary_models(path: Path, out_obj, updated_fingers):
+    """Replace explicitly changed fingers while preserving the others on disk."""
+    previous = _read_saved_workspace_json(path, out_obj["hand"])
+    previous_combos = previous.get("combos", {})
+    if not isinstance(previous_combos, dict):
+        raise ValueError(f"Invalid saved workspace combos: {path}")
+    updated = set(updated_fingers)
+    combos = dict(out_obj["combos"])
+    for combo_id, model in previous_combos.items():
+        if model["finger"] not in updated:
+            combos[combo_id] = model
+    merged = {**previous, **out_obj, "updated_fingers": sorted(updated), "combos": combos}
+    _write_workspace_json(path, merged, backup_existing=True)
+    return merged
+
+
+def _save_run_index(path: Path, hand: str, samples_by_finger, model_specs, updated_fingers=None):
+    previous = _read_saved_workspace_json(path, hand)
+    updated = (set(updated_fingers) if updated_fingers is not None else
+               {finger for finger, samples in samples_by_finger.items() if samples})
+    finger_counts = {**dict.fromkeys(FINGER_ORDER, 0), **previous.get("finger_counts", {})}
+    for finger in updated:
+        finger_counts[finger] = len(samples_by_finger[finger])
     combos = [(_combo_id(spec, direction), spec, direction)
               for spec in model_specs if spec.dims == 2 for direction in ("in", "out")]
     obj = {
         "hand": hand,
         "updated_at": datetime.now().isoformat(),
         "collection_mode": "per_finger",
-        "finger_counts": {finger: len(samples) for finger, samples in samples_by_finger.items()},
-        "combo_counts": {key: len(samples_by_finger[spec.finger]) for key, spec, _ in combos},
+        "finger_counts": finger_counts,
+        "combo_counts": {key: finger_counts[spec.finger] for key, spec, _ in combos},
         "combo_axis_motors": {
             key: [int(spec.x_motor), int(spec.y_in_motor if direction == "in" else spec.y_out_motor)]
             for key, spec, direction in combos
         },
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_workspace_json(path, obj)
 
 
 def _clear_finger_raw_data(hand_dir: Path, finger: str):
@@ -803,6 +853,7 @@ def main():
     hand_dir.mkdir(parents=True, exist_ok=True)
     model_specs = build_model_specs(hand)
     samples_by_finger = {finger: [] for finger in FINGER_ORDER}
+    updated_fingers = set()
     selected_finger = FINGER_ORDER[0]
     latest_fitted_models = None
     tension_currents = get_simultaneous_tension_currents(hand)
@@ -820,9 +871,11 @@ def main():
 
     def _fit_and_save():
         nonlocal latest_fitted_models
+        if not updated_fingers:
+            print("没有新增或清空的手指样本，保留已有边界模型。")
+            return
         projected_np = _to_numpy_projected(_project_samples(samples_by_finger, model_specs))
         fitted = _fit_all_models(projected_np, model_specs, float(args.max_outward_expand), tension_currents)
-        latest_fitted_models = fitted
         out_obj = {
             "version": "2.0",
             "created_at": datetime.now().isoformat(),
@@ -844,11 +897,15 @@ def main():
             "combos": fitted,
         }
         model_path = hand_dir / "boundary_models.json"
-        model_path.write_text(json.dumps(out_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-        _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs)
+        saved = _save_boundary_models(model_path, out_obj, updated_fingers)
+        latest_fitted_models = saved["combos"]
+        _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs,
+                        updated_fingers=updated_fingers)
+        print("本次更新手指: " + ", ".join(sorted(updated_fingers)) + "；其余手指模型保留。")
+        updated_fingers.clear()
         saved_plots = panel.save_all_finger_snapshots(
             output_dir=hand_dir / "plots", projected_by_model=projected_np,
-            selected_finger=selected_finger, fitted_models=fitted,
+            selected_finger=selected_finger, fitted_models=latest_fitted_models,
             stamp=datetime.now().strftime("%Y%m%d_%H%M%S"))
         _refresh_panel()
         print(f"已拟合并保存边界模型: {model_path}")
@@ -900,8 +957,10 @@ def main():
                     continue
                 if sub == "overwrite":
                     samples_by_finger[finger] = []
+                    updated_fingers.add(finger)
                     _clear_finger_raw_data(hand_dir, finger)
-                    _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs)
+                    _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs,
+                                    updated_fingers={finger})
                     latest_fitted_models = None
                     print(f"已清空 {FINGER_LABELS[finger]} 的历史采样，可重新采集。")
                     _refresh_panel()
@@ -917,9 +976,11 @@ def main():
                     if not seg:
                         print("当前段未记录到有效数据。")
                         continue
+                    updated_fingers.add(finger)
                     raw_csv = hand_dir / "raw" / finger / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.csv"
                     _save_session_csv(raw_csv, seg)
-                    _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs)
+                    _save_run_index(hand_dir / "run_index.json", hand, samples_by_finger, model_specs,
+                                    updated_fingers={finger})
                     duration = float(seg[-1]["wall"]) - float(seg[0]["wall"]) if len(seg) >= 2 else 0.0
                     actual_hz = (len(seg) - 1) / duration if duration > 1e-9 else 0.0
                     print(f"已保存采样段: {raw_csv}\n本段点数={len(seg)}, 当前手指总点数={len(samples_by_finger[finger])}\n"
