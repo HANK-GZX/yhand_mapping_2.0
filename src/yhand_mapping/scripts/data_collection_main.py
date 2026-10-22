@@ -54,6 +54,8 @@ from data_collection_config import (
     DATA_COLLECTION_RELEASE_SEC_PER_DEG_DEFAULT,
     DATA_COLLECTION_RELEASE_TOR_BY_ACTIVE_TARGET,
     DATA_COLLECTION_RELEASE_TOR_DEFAULT_A,
+    THUMB_FLEXOR_EXTENSOR_RELEASE_TOR_A,
+    THUMB_FLEXOR_EXTENSOR_RELEASE_SEC,
     DEFAULT_GLOVE_TOPIC,
     DEFAULT_GLOVE_RAW_SKELETON_TOPIC,
     DEFAULT_HAND,
@@ -96,6 +98,19 @@ from data_collection_config import (
     PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A,
     PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC,
     PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A,
+    THUMB_PRE_RANDOM_PASSIVE_RELEASE_TOR_A,
+    THUMB_PRE_RANDOM_PASSIVE_RELEASE_SEC,
+    THUMB_PRE_RANDOM_TIGHTEN_TOR_A,
+    THUMB_PRE_RANDOM_TIGHTEN_SEC,
+    THUMB_PRE_RANDOM_RECORD_SEC,
+    THUMB_COMBO_RELEASE_TOR_A,
+    THUMB_COMBO_RELEASE_SEC,
+    THUMB_COMBO_PASSIVE_HOLD_TOR_A,
+    THUMB_COMBO_FLEXOR_EXTENSOR_RELEASE_TOR_A,
+    THUMB_COMBO_TIGHTEN_TOR_A,
+    THUMB_COMBO_TIGHTEN_SEC,
+    THUMB_FLEXOR_TIGHTEN_SEC,
+    THUMB_COMBO_RECORD_SEC,
     PRE_RANDOM_FLEX_EXTENSOR_RELEASE_TOR_A,
     PRE_RANDOM_SWAY_OPPOSITE_RELEASE_TOR_A,
     PRE_RANDOM_PASSIVE_RELEASE_SEC,
@@ -111,6 +126,7 @@ from data_collection_config import (
     TARGET_NONE_WARN_EVERY,
     TARGET_GENERATION_RETRY,
     THUMB_OPPOSITION_ON_RATIO,
+    THUMB_EXCLUDED_COMBO_IDS,
     THUMB_ACTIVE_MODE_RATIO,
     THUMB_ABDUCTION_EXTRA_POINTS,
     THUMB_ABDUCTION_EDGE_REGION_RATIO,
@@ -120,6 +136,7 @@ from data_collection_config import (
     ZERO_FLEXOR_RELEASE_TOR_A,
     ZERO_FLEX_SWAY_TIGHTEN_TOR_A,
     ZERO_EXTENSOR_TOR_A,
+    ZERO_THUMB_OPPOSITION_TOR_A,
     ZERO_CALIBRATE_STABLE_SEC,
     ZERO_CALIBRATE_MAX_ATTEMPTS,
     ZERO_CALIBRATE_EVERY_POINTS,
@@ -600,6 +617,14 @@ def _build_uniform_current_matrix(current_a: float):
     return [[0.0, 0.0, tor, 0.0, 0.0] for _ in range(MOTOR_COUNT)]
 
 
+def _keep_four_fingers_at_default_current(hand, defaults_hand, matrix):
+    out = [row[:] for row in matrix]
+    for finger in ("index", "middle", "ring", "little"):
+        for mid in HAND_MOTOR_MAP[hand][finger].values():
+            out[mid - 1] = [0.0, 0.0, float(defaults_hand["tor"][mid - 1]), 0.0, 0.0]
+    return out
+
+
 def _poll_stdin_line_nonblocking():
     if not sys.stdin.isatty():
         return None
@@ -723,6 +748,8 @@ def _build_combo_specs(combos: dict):
         if finger not in combos_by_finger:
             continue
         if combo.get("status") != "ok":
+            continue
+        if finger == "thumb" and combo_id in THUMB_EXCLUDED_COMBO_IDS:
             continue
         dims = int(combo["dims"])
         axes = combo.get("axes", {})
@@ -1785,6 +1812,9 @@ def _preuniform_passive_currents(hand: str, finger: str, target_by_motor: dict[i
         return {}
     muscles = HAND_MOTOR_MAP.get(hand, {}).get(finger, {})
     active = next(iter(target_by_motor))
+    if finger == "thumb":
+        return {int(mid): float(THUMB_PRE_RANDOM_PASSIVE_RELEASE_TOR_A)
+                for mid in muscles.values() if int(mid) != int(active)}
     role = next((name for name, mid in muscles.items() if int(mid) == int(active)), "")
     if role.startswith("ext"):
         return {int(mid): float(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A)
@@ -2107,12 +2137,33 @@ def _execute_point(
     )
     release_sec_plan = {}
     release_tor_plan = {}
+    thumb_passive_release_currents = {}
     arrival_motor_ids = [int(mid) for mid in active_motors if int(mid) in target_by_motor]
     if not arrival_motor_ids:
         arrival_motor_ids = [int(mid) for mid in target_by_motor.keys()]
+    muscles = HAND_MOTOR_MAP[node.hand][finger]
+    sway_ids = sorted(int(mid) for role, mid in muscles.items()
+                      if role in ("adduction", "abduction") and int(mid) in arrival_motor_ids)
+    thumb_sway_first = bool(finger == "thumb" and not preuniform
+                            and len(sway_ids) == 1 and len(arrival_motor_ids) > 1)
+    thumb_combo_flexor_ids = [int(mid) for role, mid in muscles.items()
+                             if thumb_sway_first and "flex" in role and int(mid) in arrival_motor_ids]
+    thumb_combo_passive_extensors = [int(mid) for role, mid in muscles.items()
+                                    if thumb_combo_flexor_ids and role.startswith("ext")
+                                    and int(mid) not in target_by_motor]
+    thumb_flexor_reached = False
+    thumb_flexor_arrival_enter_t = None
     extensor_ids, extensor_release_ids = _extensor_first_motor_sets(
         node.hand, finger, target_by_motor, arrival_motor_ids)
+    if thumb_sway_first:
+        extensor_ids, extensor_release_ids = [], []
     extensor_first = bool(extensor_ids)
+    thumb_preuniform = bool(preuniform and finger == "thumb" and len(target_by_motor) == 1)
+    result_window_start = 0.0 if thumb_preuniform or thumb_sway_first else float(RESULT_WINDOW_START_SEC)
+    result_window_end = (float(THUMB_COMBO_RECORD_SEC) if thumb_sway_first else
+                         float(THUMB_PRE_RANDOM_RECORD_SEC) if thumb_preuniform else
+                         float(RESULT_WINDOW_END_SEC))
+    result_window_label = f"{result_window_start:.1f}-{result_window_end:.1f}"
     preuniform_currents = (_preuniform_passive_currents(node.hand, finger, target_by_motor)
                            if preuniform else {})
     continuous_assist = bool(preuniform_currents)
@@ -2121,14 +2172,23 @@ def _execute_point(
         for role, mid in HAND_MOTOR_MAP.get(node.hand, {}).get(finger, {}).items()))
     preuniform_release_sec = float(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC
                                   if preuniform_extensor else PRE_RANDOM_PASSIVE_RELEASE_SEC)
+    if thumb_preuniform:
+        preuniform_release_sec = float(THUMB_PRE_RANDOM_PASSIVE_RELEASE_SEC)
+        if extensor_first:
+            extensor_release_ids = sorted(preuniform_currents)
     preuniform_rest_currents = dict.fromkeys(preuniform_currents, 0.0)
-    if preuniform_extensor:
+    if preuniform_extensor and not thumb_preuniform:
         muscles = HAND_MOTOR_MAP[node.hand][finger]
         for role in ("abduction", "adduction"):
             preuniform_rest_currents[int(muscles[role])] = float(PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A)
     extensor_stage_reached = False
     extensor_stage_elapsed = 0.0
-    if extensor_first:
+    sway_stage_reached = False
+    sway_stage_elapsed = 0.0
+    if thumb_sway_first:
+        release_tor_plan = {int(mid): float(THUMB_COMBO_RELEASE_TOR_A)
+                            for mid in finger_motor_set[finger] if int(mid) not in sway_ids}
+    elif extensor_first:
         release_tor_plan = (dict(preuniform_currents) if preuniform_extensor else
                             {mid: float(EXTENSOR_FIRST_RELEASE_CURRENT_A)
                              for mid in extensor_release_ids})
@@ -2148,7 +2208,34 @@ def _execute_point(
             active_motor_ids=arrival_motor_ids,
         )
 
-    release_active = extensor_first or continuous_assist or bool(release_sec_plan)
+    if (finger == "thumb" and not preuniform and ANTAGONIST_RELEASE_ENABLE
+            and not extensor_first and not thumb_sway_first):
+        muscles = HAND_MOTOR_MAP[node.hand][finger]
+        if any("flex" in role and int(mid) in arrival_motor_ids for role, mid in muscles.items()):
+            thumb_passive_release_currents = {
+                int(mid): float(THUMB_FLEXOR_EXTENSOR_RELEASE_TOR_A)
+                for role, mid in muscles.items()
+                if role.startswith("ext") and int(mid) not in target_by_motor
+            }
+            for active_role, opposite_role in (("adduction", "abduction"),
+                                                ("abduction", "adduction")):
+                if int(muscles[active_role]) in arrival_motor_ids:
+                    opposite = int(muscles[opposite_role])
+                    if opposite not in target_by_motor:
+                        thumb_passive_release_currents[opposite] = float(THUMB_FLEXOR_EXTENSOR_RELEASE_TOR_A)
+            # Use current thumb roles rather than legacy cross-finger pairs.
+            thumb_motors = set(muscles.values())
+            release_sec_plan = {mid: sec for mid, sec in release_sec_plan.items() if mid in thumb_motors}
+            release_tor_plan = {mid: tor for mid, tor in release_tor_plan.items() if mid in thumb_motors}
+            for mid, current in thumb_passive_release_currents.items():
+                release_sec_plan.pop(mid, None)
+                release_tor_plan[mid] = current
+            print(f"[thumb-flexor-assist] passive motors={thumb_passive_release_currents}; "
+                  f"kp/kd=0, release for {THUMB_FLEXOR_EXTENSOR_RELEASE_SEC:.3f}s, "
+                  "then kp/kd/current=0 until point arrival or timeout.")
+
+    release_active = (thumb_sway_first or extensor_first or continuous_assist or bool(release_sec_plan)
+                      or bool(thumb_passive_release_currents))
     release_total_sec = max((float(v) for v in release_sec_plan.values()), default=0.0)
     current_cmd_matrix = None
     last_stage = None
@@ -2159,7 +2246,7 @@ def _execute_point(
                 return "current0"
             if event == "preuniform_passive_current":
                 return "passive_current"
-            if event in ("extensor_first", "remaining_targets"):
+            if event in ("sway_first", "sway_current0", "extensor_first", "remaining_targets"):
                 return event
             if "release" in event:
                 return "release"
@@ -2174,6 +2261,8 @@ def _execute_point(
 
     def _apply_cmd_matrix(matrix, phase: str, event: str):
         nonlocal current_cmd_matrix, last_stage
+        if finger == "thumb":
+            matrix = _keep_four_fingers_at_default_current(node.hand, defaults_hand, matrix)
         node.set_command_matrix(matrix)
         current_cmd_matrix = [[float(v) for v in row[:5]] for row in matrix]
         stage = _stage_label(phase, event)
@@ -2181,8 +2270,18 @@ def _execute_point(
             _print_point_stage(point_id=point_id, nominal_total=nominal_total, stage=stage)
             last_stage = stage
 
+    def _thumb_combo_passive_currents():
+        currents = {int(mid): float(THUMB_COMBO_PASSIVE_HOLD_TOR_A)
+                    for mid in finger_motor_set[finger] if mid not in target_by_motor}
+        if not thumb_flexor_reached:
+            for mid in thumb_combo_passive_extensors:
+                currents[mid] = float(THUMB_COMBO_FLEXOR_EXTENSOR_RELEASE_TOR_A)
+        return currents
+
     def _override_tor_map(elapsed_sec: float):
-        out = {}
+        releasing = elapsed_sec < max(0.0, float(THUMB_FLEXOR_EXTENSOR_RELEASE_SEC))
+        out = {mid: current if releasing else 0.0
+               for mid, current in thumb_passive_release_currents.items()}
         for mid, rel_sec in release_sec_plan.items():
             motor_id = int(mid)
             rel_sec_v = max(0.0, float(rel_sec))
@@ -2190,9 +2289,21 @@ def _execute_point(
                 out[motor_id] = float(release_tor_plan.get(motor_id, DATA_COLLECTION_RELEASE_TOR_DEFAULT_A))
         return out
 
-    override_tor_map_now = (dict(preuniform_currents) if continuous_assist else
+    override_tor_map_now = (dict(release_tor_plan) if thumb_sway_first else
+                           dict(preuniform_currents) if continuous_assist else
                            _override_tor_map(0.0) if release_active and not extensor_first else {})
-    if extensor_first:
+    if thumb_sway_first:
+        first_matrix = _build_command_matrix_for_point(
+            hand=node.hand, defaults_hand=defaults_hand,
+            finger_motor_set=finger_motor_set, finger=finger,
+            target_by_motor={mid: target_by_motor[mid] for mid in sway_ids},
+            release_tor_by_motor=release_tor_plan,
+        )
+        print(f"[sway-first] finger={finger} sway={sway_ids}; other finger motors "
+              f"release at {THUMB_COMBO_RELEASE_TOR_A:+.3f}A for {THUMB_COMBO_RELEASE_SEC:.3f}s, "
+              "then kp/kd/current=0 until sway arrival.")
+        _apply_cmd_matrix(first_matrix, phase="move", event="sway_first")
+    elif extensor_first:
         first_targets = {mid: target_by_motor[mid] for mid in extensor_ids}
         # Delay other active motors (e.g. thumb opposition). Flexors and sway
         # motors must stay in pure current release, including the active sway.
@@ -2204,9 +2315,12 @@ def _execute_point(
             finger_motor_set=finger_motor_set, finger=finger,
             target_by_motor=first_targets, release_tor_by_motor=release_tor_plan,
         )
+        release_current = (THUMB_PRE_RANDOM_PASSIVE_RELEASE_TOR_A if thumb_preuniform else
+                           PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A if preuniform_extensor else
+                           EXTENSOR_FIRST_RELEASE_CURRENT_A)
         print(f"[extensor-first] finger={finger} extensors={extensor_ids} "
               f"release_motors={extensor_release_ids} "
-              f"release_current=+{(PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A if preuniform_extensor else EXTENSOR_FIRST_RELEASE_CURRENT_A):.3f}A kp/kd=0; "
+              f"release_current=+{release_current:.3f}A kp/kd=0; "
               "move extensors immediately, then remaining target motors.")
         if preuniform_extensor:
             print(f"[preuniform-assist] release for {preuniform_release_sec:.3f}s, "
@@ -2232,7 +2346,7 @@ def _execute_point(
         _apply_cmd_matrix(matrix_normal, phase="move", event="init_target")
 
     t0 = time.monotonic()
-    motion_stage = "extensor_first" if extensor_first else "simultaneous"
+    motion_stage = "sway_first" if thumb_sway_first else "extensor_first" if extensor_first else "simultaneous"
     stage_start = t0
     last_override_signature = tuple(
         sorted((int(mid), float(tor)) for mid, tor in override_tor_map_now.items())
@@ -2265,7 +2379,15 @@ def _execute_point(
                 break
         now = time.monotonic()
         override_ids_now = []
-        if continuous_assist:
+        if thumb_sway_first:
+            if motion_stage == "sway_first":
+                releasing = (now - t0) < max(0.0, float(THUMB_COMBO_RELEASE_SEC))
+                override_tor_map_now = {mid: current if releasing else 0.0
+                                       for mid, current in release_tor_plan.items()}
+            else:
+                override_tor_map_now = _thumb_combo_passive_currents()
+            override_ids_now = sorted(override_tor_map_now)
+        elif continuous_assist:
             releasing = (now - t0) < max(0.0, preuniform_release_sec)
             override_tor_map_now = {mid: current if releasing else preuniform_rest_currents[mid]
                                     for mid, current in preuniform_currents.items()}
@@ -2274,9 +2396,9 @@ def _execute_point(
             override_tor_map_now = _override_tor_map(now - t0)
             override_ids_now = sorted(override_tor_map_now.keys())
 
-        # Preuniform points: release -> configured passive currents until movement ends.
-        # Other non-extensor points: release -> default current; tightening
-        # is handled after arrival/timeout instead of during movement.
+        # Thumb combos: sway-only release -> zero; remaining targets -> passive hold.
+        # Preuniform points keep their own release policy; ordinary points use
+        # timed release -> default current (thumb manual flexor targets -> zero).
         desired_override_map = override_tor_map_now if override_ids_now else {}
         desired_override_signature = tuple(
             sorted((int(mid), float(tor)) for mid, tor in desired_override_map.items())
@@ -2288,7 +2410,9 @@ def _execute_point(
                     defaults_hand=defaults_hand,
                     finger_motor_set=finger_motor_set,
                     finger=finger,
-                    target_by_motor=target_by_motor,
+                    target_by_motor=({mid: target_by_motor[mid] for mid in sway_ids}
+                                     if thumb_sway_first and motion_stage == "sway_first"
+                                     else target_by_motor),
                     release_tor_by_motor=desired_override_map,
                     hold_pos_by_motor=hold_pos_by_motor,
                 )
@@ -2300,7 +2424,8 @@ def _execute_point(
                     _apply_cmd_matrix(
                         matrix_override,
                         phase="move",
-                        event=("preuniform_passive_current" if preuniform_extensor else
+                        event=("sway_current0" if thumb_sway_first else
+                               "preuniform_passive_current" if preuniform_extensor else
                                "preuniform_current0" if continuous_assist else
                                "override_release_changed"),
                     )
@@ -2320,12 +2445,47 @@ def _execute_point(
                     target_by_motor,
                     arrival_motor_ids=arrival_motor_ids,
                 )
-                stage_error = (_max_active_error(snap, target_by_motor, extensor_ids)
+                if (thumb_sway_first and motion_stage == "remaining_targets"
+                        and thumb_combo_flexor_ids and not thumb_flexor_reached):
+                    flexor_error = _max_active_error(snap, target_by_motor, thumb_combo_flexor_ids)
+                    if flexor_error <= point_tolerance:
+                        if thumb_flexor_arrival_enter_t is None:
+                            thumb_flexor_arrival_enter_t = now
+                        elif (now - thumb_flexor_arrival_enter_t) >= ARRIVAL_CONFIRM_SEC:
+                            thumb_flexor_reached = True
+                            print("[thumb-flexor-arrived] flexor arrival confirmed; "
+                                  f"passive extensors switch to {THUMB_COMBO_PASSIVE_HOLD_TOR_A:+.3f}A "
+                                  "while other targets finish.")
+                    else:
+                        thumb_flexor_arrival_enter_t = None
+                stage_error = (_max_active_error(snap, target_by_motor, sway_ids)
+                               if motion_stage == "sway_first" else
+                               _max_active_error(snap, target_by_motor, extensor_ids)
                                if motion_stage == "extensor_first" else max_err)
                 if stage_error <= point_tolerance:
                     if arrival_enter_t is None:
                         arrival_enter_t = now
-                    elif (now - arrival_enter_t) >= ARRIVAL_CONFIRM_SEC:
+                    elif ((now - arrival_enter_t) >= ARRIVAL_CONFIRM_SEC
+                          and (motion_stage != "sway_first"
+                               or (now - t0) >= float(THUMB_COMBO_RELEASE_SEC))):
+                        if motion_stage == "sway_first":
+                            sway_stage_reached = True
+                            sway_stage_elapsed = float(now - stage_start)
+                            passive_currents = _thumb_combo_passive_currents()
+                            second_matrix = _build_command_matrix_for_point(
+                                hand=node.hand, defaults_hand=defaults_hand,
+                                finger_motor_set=finger_motor_set, finger=finger,
+                                target_by_motor=target_by_motor,
+                                release_tor_by_motor=passive_currents,
+                            )
+                            motion_stage = "remaining_targets"
+                            stage_start = now
+                            arrival_enter_t = None
+                            last_override_signature = tuple(sorted(passive_currents.items()))
+                            print(f"[sway-arrived] finger={finger}; hold sway target, "
+                                  f"move remaining targets; passive currents={passive_currents}, kp/kd=0.")
+                            _apply_cmd_matrix(second_matrix, phase="move", event="remaining_targets")
+                            continue
                         if motion_stage == "extensor_first":
                             extensor_stage_reached = True
                             extensor_stage_elapsed = float(now - stage_start)
@@ -2366,6 +2526,7 @@ def _execute_point(
             else:
                 # Stale/missing feedback must not bridge the confirmation period.
                 arrival_enter_t = None
+                thumb_flexor_arrival_enter_t = None
         stage_timeout = EXTENSOR_FIRST_TIMEOUT_SEC if motion_stage == "extensor_first" else MOVE_TIMEOUT_SEC
         if (time.monotonic() - stage_start) >= stage_timeout:
             timeout = True
@@ -2376,6 +2537,12 @@ def _execute_point(
         time.sleep(0.005)
 
     move_elapsed = float(time.monotonic() - t0)
+    if thumb_sway_first:
+        if not sway_stage_reached:
+            sway_stage_elapsed = move_elapsed
+        release_sec_plan = dict.fromkeys(
+            release_tor_plan, min(sway_stage_elapsed, max(0.0, float(THUMB_COMBO_RELEASE_SEC))))
+        release_total_sec = max(release_sec_plan.values(), default=0.0)
     if continuous_assist:
         release_sec_plan = {mid: min(move_elapsed, max(0.0, preuniform_release_sec))
                             if current != 0.0 else 0.0
@@ -2388,9 +2555,17 @@ def _execute_point(
             release_sec_plan.setdefault(mid, move_elapsed)
         release_total_sec = max(release_sec_plan.values(), default=0.0)
 
+    if thumb_passive_release_currents:
+        release_sec_plan.update(dict.fromkeys(
+            thumb_passive_release_currents,
+            min(move_elapsed, max(0.0, float(THUMB_FLEXOR_EXTENSOR_RELEASE_SEC)))))
+        release_total_sec = max(release_sec_plan.values(), default=0.0)
+
     motion_metadata = {
-        "motion_policy": ("extensor_first" if extensor_first else
+        "motion_policy": ("sway_first" if thumb_sway_first else "extensor_first" if extensor_first else
                           "preuniform_assist" if continuous_assist else "simultaneous"),
+        "sway_stage_reached": sway_stage_reached if thumb_sway_first else None,
+        "sway_stage_elapsed_sec": sway_stage_elapsed,
         "extensor_stage_reached": extensor_stage_reached if extensor_first else None,
         "extensor_stage_elapsed_sec": extensor_stage_elapsed,
         "timeout_stage": motion_stage if timeout else "",
@@ -2398,6 +2573,18 @@ def _execute_point(
 
     # Keep the same pure-current command through tightening, settling and sampling.
     matrix_tor_tighten = _build_uniform_current_matrix(POST_ARRIVAL_TIGHTEN_TOR_A)
+    tighten_duration = max(0.0, float(POST_ARRIVAL_TIGHTEN_SEC))
+    if thumb_preuniform or thumb_sway_first:
+        matrix_tor_tighten = _build_idle_tor_matrix(defaults_hand)
+        tighten_current = float(THUMB_COMBO_TIGHTEN_TOR_A if thumb_sway_first
+                                else THUMB_PRE_RANDOM_TIGHTEN_TOR_A)
+        for mid in finger_motor_set[finger]:
+            matrix_tor_tighten[mid - 1] = [0.0, 0.0, tighten_current, 0.0, 0.0]
+        tighten_duration = max(0.0, float(THUMB_COMBO_TIGHTEN_SEC if thumb_sway_first
+                                         else THUMB_PRE_RANDOM_TIGHTEN_SEC))
+        if any("flex" in role and int(mid) in arrival_motor_ids
+               for role, mid in muscles.items()):
+            tighten_duration = max(0.0, float(THUMB_FLEXOR_TIGHTEN_SEC))
 
     post_arrival_tighten_elapsed = 0.0
     if (reached or timeout) and not interrupted:
@@ -2406,7 +2593,6 @@ def _execute_point(
             phase="tighten", event="post_motion_tighten",
         )
         tighten_t0 = time.monotonic()
-        tighten_duration = max(0.0, float(POST_ARRIVAL_TIGHTEN_SEC))
         next_tighten_sample_t = tighten_t0
         while (time.monotonic() - tighten_t0) < tighten_duration:
             # Keep pause/stop/emergency commands responsive during tightening.
@@ -2443,10 +2629,15 @@ def _execute_point(
     if (reached or timeout) and not interrupted:
         _apply_cmd_matrix(matrix_tor_tighten, phase="position_settle",
                           event="post_motion_position_settle")
+        tension_scope = ("thumb motors" if thumb_preuniform or thumb_sway_first else
+                         "thumb/wrist motors" if finger == "thumb" else f"all {MOTOR_COUNT} motors")
+        tension_current = (THUMB_COMBO_TIGHTEN_TOR_A if thumb_sway_first else
+                           THUMB_PRE_RANDOM_TIGHTEN_TOR_A if thumb_preuniform else
+                           POST_ARRIVAL_TIGHTEN_TOR_A)
         print(f"[position-settle] finger={finger} motors={finger_motor_set[finger]}; "
               f"require each position range <= {POSITION_STABLE_MAX_RANGE_DEG:.3f} deg "
               f"over {POSITION_STABLE_WINDOW_SEC:.3f}s before sampling; "
-              f"all {MOTOR_COUNT} motors keep {POST_ARRIVAL_TIGHTEN_TOR_A:.3f}A through sampling.")
+              f"{tension_scope} keep {tension_current:.3f}A through sampling.")
 
         def record_settle_sample(now, snap):
             if process_include_post_stable:
@@ -2488,7 +2679,7 @@ def _execute_point(
             "assist_release_tor_plan": {
                 int(mid): float(tor) for mid, tor in sorted(release_tor_plan.items())
             },
-            "result_window_label": f"{RESULT_WINDOW_START_SEC:.1f}-{RESULT_WINDOW_END_SEC:.1f}",
+            "result_window_label": result_window_label,
             "result_sample_count": 0,
             "result_glove_avg": [],
             "result_glove_skeleton_avg": [],
@@ -2499,7 +2690,8 @@ def _execute_point(
     _apply_cmd_matrix(matrix_tor_tighten, phase="stable", event="position_settled_keep_tension")
 
     # Start a separate result clock only after the position stability gate passes.
-    stable_duration = max(float(STABLE_HOLD_SEC), float(RESULT_WINDOW_END_SEC))
+    stable_duration = (result_window_end if thumb_preuniform or thumb_sway_first
+                       else max(float(STABLE_HOLD_SEC), result_window_end))
     stable_t0 = time.monotonic()
     stable_glove_rows, stable_glove_skeleton_rows, stable_fb_rows = _collect_window_samples(
         node=node,
@@ -2511,10 +2703,9 @@ def _execute_point(
         stable_glove_rows,
         stable_glove_skeleton_rows,
         stable_fb_rows,
-        t_start=float(RESULT_WINDOW_START_SEC),
-        t_end=float(RESULT_WINDOW_END_SEC),
+        t_start=result_window_start,
+        t_end=result_window_end,
     )
-    result_window_label = f"{RESULT_WINDOW_START_SEC:.1f}-{RESULT_WINDOW_END_SEC:.1f}"
 
     result_glove_avg = _average_rows(result_glove_rows)
     result_glove_skeleton_avg = _average_rows(result_glove_skeleton_rows)
@@ -2573,6 +2764,7 @@ def _execute_point(
 
 def _point_motion_metadata(outcome):
     keys = ("motion_policy", "extensor_stage_reached", "extensor_stage_elapsed_sec", "timeout_stage",
+            "sway_stage_reached", "sway_stage_elapsed_sec",
             "post_arrival_tighten_applied", "post_arrival_tighten_elapsed_sec",
             "position_stable_confirmed", "position_stable_wait_sec", "position_stable_max_span_deg",
             "position_stable_motor_ids", "position_stable_window_sec", "position_stable_range_limit_deg")
@@ -2602,7 +2794,42 @@ def _wait_zero_positions(node: DataCollectionNode, motor_ids: list[int]):
     return False, last_max_abs_pos
 
 
-def _run_zero_calibration(node: DataCollectionNode, defaults_hand):
+def _run_zero_calibration(node: DataCollectionNode, defaults_hand, finger=None):
+    if finger == "thumb":
+        # During thumb collection, never release or position-control the four fingers.
+        thumb_ids = sorted(set(HAND_MOTOR_MAP[node.hand]["thumb"].values()))
+        matrix = _build_idle_tor_matrix(defaults_hand)
+        zero_matrix = _build_zero_matrix(defaults_hand)
+        for mid in thumb_ids:
+            matrix[mid - 1] = zero_matrix[mid - 1][:]
+        opposition_id = int(HAND_MOTOR_MAP[node.hand]["thumb"]["opposition"])
+        matrix[opposition_id - 1][2] = float(ZERO_THUMB_OPPOSITION_TOR_A)
+        attempts = 0
+        last_max_abs_pos = None
+        print(f"[calibrate] 仅拇指6台电机位控回0，对掌M{opposition_id}前馈 "
+              f"{ZERO_THUMB_OPPOSITION_TOR_A:+.3f}A，四指保持默认纯电流张紧。")
+        while attempts < int(ZERO_CALIBRATE_MAX_ATTEMPTS):
+            attempts += 1
+            node.set_command_matrix(matrix)
+            reached, last_max_abs_pos = _wait_zero_positions(node, thumb_ids)
+            if reached:
+                return {"success": True, "attempts": attempts,
+                        "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
+                        "last_max_abs_pos": last_max_abs_pos}
+        positions = _zero_feedback_positions(node)
+        hold_matrix = _build_idle_tor_matrix(defaults_hand)
+        if positions is not None:
+            measured_hold = _build_hold_current_matrix(defaults_hand, positions)
+            for mid in thumb_ids:
+                hold_matrix[mid - 1] = measured_hold[mid - 1][:]
+        else:
+            for mid in thumb_ids:
+                hold_matrix[mid - 1] = [0.0] * 5
+        node.set_command_matrix(hold_matrix)
+        return {"success": False, "attempts": attempts,
+                "max_attempts": int(ZERO_CALIBRATE_MAX_ATTEMPTS),
+                "last_max_abs_pos": last_max_abs_pos, "failed_stage": "thumb"}
+
     _run_zero_prerelease(node, defaults_hand)
     extensor_motor_ids = [int(HAND_MOTOR_MAP[node.hand][finger]["extensor"])
                           for finger in ("index", "middle", "ring", "little")]
@@ -4047,7 +4274,7 @@ def _run_manual_supplement_loop(
             forced_mode = mode
             continue
         if cmd in ("z", "zero"):
-            calib_result = _run_zero_calibration(node, defaults_hand)
+            calib_result = _run_zero_calibration(node, defaults_hand, finger=current_finger)
             calib_state["zero_calib_total_events"] += 1
             finger_states[current_finger]["finger_zero_calib_events"] += 1
             if calib_result["success"]:
@@ -4255,10 +4482,17 @@ def _apply_finger_resume_payload(finger_state: dict, payload: dict):
 
     # Older checkpoints used 2000 for every finger and did not store this field.
     previous_base = int(payload.get("quota_base_per_combo", 2000))
-    quota_changed = previous_base != int(_combo_base_quota(finger_state.get("finger", "")))
-    if quota_changed:
+    base_changed = previous_base != int(_combo_base_quota(finger_state.get("finger", "")))
+    saved_counts = payload.get("combo_counts")
+    combo_set_changed = (isinstance(saved_counts, dict)
+                         and set(saved_counts) != set(finger_state.get("combo_counts", {})))
+    quota_changed = base_changed or combo_set_changed
+    if base_changed:
         print(f"[resume] finger={finger_state.get('finger', '')} quota/combo "
               f"{previous_base} -> {_combo_base_quota(finger_state.get('finger', ''))}; keeping collected counts.")
+    if combo_set_changed:
+        print(f"[resume] finger={finger_state.get('finger', '')} combo policy changed; "
+              "keeping historical point IDs and retained-combo counts, rebuilding quota limits.")
 
     def _merge_int_map(dst_name: str, src_name: str):
         dst = finger_state.get(dst_name, {})
@@ -4754,6 +4988,11 @@ def main():
     defaults_hand = _load_defaults_from_py(defaults_path, hand)
     _, combos_json = _load_boundary_json(boundary_path, hand)
     combos_by_finger = _build_combo_specs(combos_json)
+    if "thumb" in target_fingers:
+        excluded = sorted(set(combos_json) & THUMB_EXCLUDED_COMBO_IDS)
+        if excluded:
+            print(f"[combo-policy] thumb excluded={excluded}; "
+                  f"enabled={len(combos_by_finger['thumb'])}")
     finger_motor_set = _finger_motor_sets(hand)
 
     for finger in target_fingers:
@@ -5056,7 +5295,8 @@ def main():
                     )
                     continue
                 if cmd_menu == "z":
-                    calib_result = _run_zero_calibration(node, defaults_hand)
+                    calib_result = _run_zero_calibration(
+                        node, defaults_hand, finger="thumb" if target_fingers == ["thumb"] else None)
                     zero_calib_total_events += 1
                     if calib_result["success"]:
                         zero_calib_state = "ok"
@@ -5294,7 +5534,7 @@ def main():
                 nonlocal zero_calib_state, zero_calib_fail_streak
                 nonlocal zero_calib_total_events, zero_calib_failed_events
                 nonlocal finger_zero_calib_events, finger_zero_calib_failed_events
-                calib_result = _run_zero_calibration(node, defaults_hand)
+                calib_result = _run_zero_calibration(node, defaults_hand, finger=finger)
                 zero_calib_total_events += 1
                 finger_zero_calib_events += 1
                 finger_state["finger_zero_calib_events"] = finger_zero_calib_events
@@ -5338,6 +5578,8 @@ def main():
                         defaults_hand=defaults_hand,
                         current_pos=np.asarray(snap_now["pos"], dtype=np.float64),
                     )
+                    if finger == "thumb":
+                        hold_matrix = _keep_four_fingers_at_default_current(node.hand, defaults_hand, hold_matrix)
                     node.set_command_matrix(hold_matrix)
                     print(f"[auto-control] paused-hold ({reason_tag}) at current positions.")
                 else:
@@ -5722,7 +5964,7 @@ def main():
                         f"round={finger_reopen_round}/{int(FINGER_UNFREEZE_MAX_ROUNDS)}; "
                         "run zero calibration and reopen combo caps."
                     )
-                    calib_result = _run_zero_calibration(node, defaults_hand)
+                    calib_result = _run_zero_calibration(node, defaults_hand, finger=finger)
                     zero_calib_total_events += 1
                     finger_zero_calib_events += 1
                     finger_state["finger_zero_calib_events"] = finger_zero_calib_events
@@ -5847,7 +6089,7 @@ def main():
                                 "run zero calibration and retry."
                             )
 
-                            calib_result = _run_zero_calibration(node, defaults_hand)
+                            calib_result = _run_zero_calibration(node, defaults_hand, finger=finger)
                             zero_calib_total_events += 1
                             finger_zero_calib_events += 1
                             finger_state["finger_zero_calib_events"] = finger_zero_calib_events
@@ -6214,7 +6456,7 @@ def main():
 
                 if (global_point % ZERO_CALIBRATE_EVERY_POINTS) == 0:
                     print(f"[calibrate] global_point={global_point}, running zero calibration...")
-                    calib_result = _run_zero_calibration(node, defaults_hand)
+                    calib_result = _run_zero_calibration(node, defaults_hand, finger=finger)
                     zero_calib_total_events += 1
                     finger_zero_calib_events += 1
                     finger_state["finger_zero_calib_events"] = finger_zero_calib_events

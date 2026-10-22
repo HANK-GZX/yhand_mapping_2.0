@@ -137,7 +137,19 @@ def test_default_entrypoint_collects_all_fingers_and_is_readable_by_data_collect
     _, loaded = data_collection._load_boundary_json(hand_dir / "boundary_models.json", hand)
     accepted = data_collection._build_combo_specs(loaded)
     assert {finger: len(combos) for finger, combos in accepted.items()} == dict(
-        thumb=12, index=6, middle=6, ring=4, little=4)
+        thumb=11, index=6, middle=6, ring=4, little=4)
+    # Workspace retains all 12 models; only short/out/on is excluded.
+    assert len([key for key in loaded if key.startswith('thumb_')]) == 12
+    accepted_thumb_ids = {combo.combo_id for combo in accepted['thumb']}
+    assert accepted_thumb_ids == {key for key in loaded if key.startswith('thumb_')} - {
+        'thumb_ext_short_out_opp_on'}
+    assert {'thumb_ext_long_in_opp_on', 'thumb_ext_long_out_opp_on',
+            'thumb_ext_short_in_opp_on',
+            'thumb_ext_short_in_opp_off', 'thumb_ext_short_out_opp_off'} <= accepted_thumb_ids
+    total, lower, upper, _ = data_collection._build_finger_quota_plan(
+        'thumb', accepted['thumb'], points_per_combo=1000)
+    assert total == 11000 and set(lower) == set(upper) == accepted_thumb_ids
+    assert set(lower.values()) == set(upper.values()) == {1000}
     node, sent = created[0]
     assert all([motor.tor for motor in msg.motors] == pytest.approx(get_simultaneous_tension_currents(hand))
                for msg in sent)

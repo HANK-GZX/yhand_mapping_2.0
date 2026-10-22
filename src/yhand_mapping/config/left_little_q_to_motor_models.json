@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "hand": "left",
+  "finger": "little",
+  "q_units": "degrees",
+  "motor_position_units": "degrees",
+  "q_reference_source": "user supplied motor-zero glove angles, 2026-10-21",
+  "reference_is_exact_zero_calibration": true,
+  "motor_order": [
+    11,
+    13,
+    18,
+    20
+  ],
+  "default_model": "linear",
+  "source_collection": "20261020_165513_left_collection/left_hand/little",
+  "training_scope": "all formal active_mode=xy points; including timeouts",
+  "training_points": 2227,
+  "q_reference": [
+    -5.0,
+    -9.0,
+    7.0,
+    -10.0
+  ],
+  "calibration_measured_by_script": false,
+  "zero_position_constraint": true,
+  "zero_motor_positions": {
+    "11": 0.0,
+    "13": 0.0,
+    "18": 0.0,
+    "20": 0.0
+  },
+  "fitting_method": "least squares without intercept; origin-preserving scaling, no input centering",
+  "validation_seed": 20261021,
+  "q_relative_training_bounds": {
+    "q0": [
+      -20.709,
+      6.4025
+    ],
+    "q1": [
+      -4.372033333333331,
+      63.24416666666666
+    ],
+    "q2": [
+      -7.039133333333333,
+      79.88106666666667
+    ],
+    "q3": [
+      -7.596466666666672,
+      33.282133333333334
+    ]
+  },
+  "motor_position_training_bounds": {
+    "11": [
+      -14.22772884368896,
+      225.8601567586263
+    ],
+    "13": [
+      -215.3258021036784,
+      11.30527648925781
+    ],
+    "18": [
+      -10.2725305557251,
+      43.9466552734375
+    ],
+    "20": [
+      -69.49063873291016,
+      0.0
+    ]
+  },
+  "bounds_note": "Coordinate bounds include the user-provided m=0 calibration anchor; this is not extra recorded training data.",
+  "motors": {
+    "11": {
+      "role": "extensor",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x1",
+            "x2",
+            "x3"
+          ],
+          "coefficients": [
+            0.0,
+            0.48494295829779444,
+            1.9212494081123328,
+            1.8420118227192768,
+            2.290227667291013
+          ],
+          "descriptive_fit_mae_motor_deg": 2.767946020906393,
+          "descriptive_fit_r2": 0.9977830360741016,
+          "five_fold_validation": {
+            "r2": 0.9977765651748038,
+            "mae": 2.773032741123725,
+            "rmse": 3.5584714117181266,
+            "p95_abs_error": 7.258972634910206,
+            "max_abs_error": 10.53495288058565
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            7.140705746059517,
+            14.538973919377742,
+            33.19912015356655,
+            10.139997931563917
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x1",
+            "x2",
+            "x3",
+            "x0*x0",
+            "x0*x1",
+            "x0*x2",
+            "x0*x3",
+            "x1*x1",
+            "x1*x2",
+            "x1*x3",
+            "x2*x2",
+            "x2*x3",
+            "x3*x3"
+          ],
+          "coefficients": [
+            0.0,
+            -0.6414327895708647,
+            33.83978811812834,
+            73.67970278179045,
+            18.85545073200298,
+            -0.47574508198466603,
+            0.607846324241396,
+            0.3876470292398745,
+            1.0993270725146913,
+            -0.7210047336203481,
+            -2.2942712175533333,
+            -0.6734173129280459,
+            -6.12325459065108,
+            -1.3027613088339889,
+            1.445908481592902
+          ],
+          "descriptive_fit_mae_motor_deg": 0.968324627065613,
+          "descriptive_fit_r2": 0.9997187882408369,
+          "five_fold_validation": {
+            "r2": 0.9997136140907095,
+            "mae": 0.9760816574727238,
+            "rmse": 1.2771064618644825,
+            "p95_abs_error": 2.5765000750345943,
+            "max_abs_error": 5.401661837355647
+          }
+        }
+      }
+    },
+    "13": {
+      "role": "flexor",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x1",
+            "x2",
+            "x3"
+          ],
+          "coefficients": [
+            0.0,
+            -0.46133023250439503,
+            -1.5904095662355533,
+            -1.9904824801237755,
+            -2.3597606727639446
+          ],
+          "descriptive_fit_mae_motor_deg": 2.713121416574055,
+          "descriptive_fit_r2": 0.9975807044522245,
+          "five_fold_validation": {
+            "r2": 0.9975712613756393,
+            "mae": 2.718166430149782,
+            "rmse": 3.6865592350845193,
+            "p95_abs_error": 7.625037458288957,
+            "max_abs_error": 25.884897797528865
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            7.140705746059517,
+            14.538973919377742,
+            33.19912015356655,
+            10.139997931563917
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x1",
+            "x2",
+            "x3",
+            "x0*x0",
+            "x0*x1",
+            "x0*x2",
+            "x0*x3",
+            "x1*x1",
+            "x1*x2",
+            "x1*x3",
+            "x2*x2",
+            "x2*x3",
+            "x3*x3"
+          ],
+          "coefficients": [
+            0.0,
+            0.6578577428667958,
+            -24.311553037666496,
+            -82.22713540141214,
+            -22.42421026295512,
+            0.35722592688695715,
+            -0.3886579699526637,
+            -0.5358323812796394,
+            -1.3805688196011194,
+            -1.5056240532394436,
+            5.514679100547277,
+            1.7913681993475956,
+            4.781527881189767,
+            2.0752055743942717,
+            -1.1735129460297151
+          ],
+          "descriptive_fit_mae_motor_deg": 1.0905078043050065,
+          "descriptive_fit_r2": 0.9996393898475646,
+          "five_fold_validation": {
+            "r2": 0.9996310885427548,
+            "mae": 1.0971788529567286,
+            "rmse": 1.4367853740017051,
+            "p95_abs_error": 2.6913308243396403,
+            "max_abs_error": 12.114878944254357
+          }
+        }
+      }
+    },
+    "18": {
+      "role": "adduction",
+      "input_q_indices": [
+        0
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0
+          ],
+          "input_scale": [
+            1.0
+          ],
+          "feature_order": [
+            "1",
+            "x0"
+          ],
+          "coefficients": [
+            0.0,
+            -1.4873566687222926
+          ],
+          "descriptive_fit_mae_motor_deg": 6.038461892941774,
+          "descriptive_fit_r2": 0.7847825271517977,
+          "five_fold_validation": {
+            "r2": 0.784741445415772,
+            "mae": 6.03924903392482,
+            "rmse": 7.025064325389673,
+            "p95_abs_error": 12.09902991724998,
+            "max_abs_error": 17.18116638109191
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0
+          ],
+          "input_scale": [
+            7.140705746059517
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x0*x0"
+          ],
+          "coefficients": [
+            0.0,
+            -1.0476608819066426,
+            4.429887411560067
+          ],
+          "descriptive_fit_mae_motor_deg": 4.9471036947015286,
+          "descriptive_fit_r2": 0.855393013717707,
+          "five_fold_validation": {
+            "r2": 0.8551920594766909,
+            "mae": 4.949295665866286,
+            "rmse": 5.761907525124408,
+            "p95_abs_error": 9.746111697215886,
+            "max_abs_error": 16.126721503106857
+          }
+        }
+      }
+    },
+    "20": {
+      "role": "abduction",
+      "input_q_indices": [
+        0
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0
+          ],
+          "input_scale": [
+            1.0
+          ],
+          "feature_order": [
+            "1",
+            "x0"
+          ],
+          "coefficients": [
+            0.0,
+            3.6484899245184237
+          ],
+          "descriptive_fit_mae_motor_deg": 15.080929679398105,
+          "descriptive_fit_r2": -0.25096962452905647,
+          "five_fold_validation": {
+            "r2": -0.2512952830791808,
+            "mae": 15.084183390019204,
+            "rmse": 18.771712882563573,
+            "p95_abs_error": 37.19795178267555,
+            "max_abs_error": 45.20585925961978
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0
+          ],
+          "input_scale": [
+            7.140705746059517
+          ],
+          "feature_order": [
+            "1",
+            "x0",
+            "x0*x0"
+          ],
+          "coefficients": [
+            0.0,
+            37.2305008546236,
+            5.172400544308612
+          ],
+          "descriptive_fit_mae_motor_deg": 13.230809604909606,
+          "descriptive_fit_r2": -0.17259773513456045,
+          "five_fold_validation": {
+            "r2": -0.17355559380178676,
+            "mae": 13.237458901896591,
+            "rmse": 18.1792446043077,
+            "p95_abs_error": 41.39242988991954,
+            "max_abs_error": 52.56028630822519
+          }
+        }
+      }
+    }
+  },
+  "fit_limitation": "q0-only lateral models cannot explain large pose/history-dependent offsets in the recorded data. Enforcing the supplied zero anchor substantially worsens M20 offline error; zero consistency is not accuracy validation."
+}

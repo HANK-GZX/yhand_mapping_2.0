@@ -20,6 +20,7 @@ ARRIVAL_CONFIRM_SEC = 1.0
 RETURN_ZERO_TIMEOUT_SEC = 3.0
 # After arrival or timeout, keep all motors at this current through tightening,
 # the position stability gate, and result sampling (all kp/kd=0).
+# During thumb collection, the four other fingers keep their default currents.
 POST_ARRIVAL_TIGHTEN_TOR_A = -0.08
 POST_ARRIVAL_TIGHTEN_SEC = 3.0
 # Require a continuous stable position window on every current-finger motor
@@ -68,10 +69,16 @@ ZERO_FLEXOR_RELEASE_TOR_A = 0.08
 ZERO_FLEXOR_RELEASE_SEC = 1.0
 ZERO_FLEX_SWAY_TIGHTEN_TOR_A = -0.03
 ZERO_EXTENSOR_TOR_A = -0.05
+# Feedforward current for thumb opposition while position-controlling to zero.
+ZERO_THUMB_OPPOSITION_TOR_A = 0.08
 
 # Data-collection-only antagonist release current profile (A).
 # Intentionally decoupled from motor_position_test.
 DATA_COLLECTION_RELEASE_TOR_DEFAULT_A = 0.5
+# Thumb flexor combo points release passive extensors and the opposite sway
+# briefly, then leave kp/kd/current at zero until arrival/timeout.
+THUMB_FLEXOR_EXTENSOR_RELEASE_TOR_A = 0.08
+THUMB_FLEXOR_EXTENSOR_RELEASE_SEC = 1.0
 
 # Per-hand, per-active-motor, per-target-motor release current override.
 # Structure:
@@ -253,6 +260,25 @@ PRE_RANDOM_PASSIVE_RELEASE_SEC = 0.5
 PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_TOR_A = 0.05
 PRE_RANDOM_EXTENSOR_PASSIVE_RELEASE_SEC = 1.0
 PRE_RANDOM_EXTENSOR_SWAY_TIGHTEN_TOR_A = -0.03
+# Thumb single-motor preuniform points use one release/tighten policy for all roles.
+THUMB_PRE_RANDOM_PASSIVE_RELEASE_TOR_A = 0.08
+THUMB_PRE_RANDOM_PASSIVE_RELEASE_SEC = 1.0
+THUMB_PRE_RANDOM_TIGHTEN_TOR_A = -0.1
+THUMB_PRE_RANDOM_TIGHTEN_SEC = 2.0
+THUMB_PRE_RANDOM_RECORD_SEC = 1.0
+# Thumb combo movement: sway first, then the remaining active motors.
+THUMB_COMBO_RELEASE_TOR_A = 0.08
+THUMB_COMBO_RELEASE_SEC = 1.0
+THUMB_COMBO_PASSIVE_HOLD_TOR_A = 0.02
+# During active thumb flexion, release both passive extensors until the flexor
+# independently satisfies the normal arrival confirmation, or movement times out.
+THUMB_COMBO_FLEXOR_EXTENSOR_RELEASE_TOR_A = 0.05
+THUMB_COMBO_TIGHTEN_TOR_A = -0.1
+THUMB_COMBO_TIGHTEN_SEC = 2.0
+# Active thumb flexion needs extra time to recover released extensor tendons,
+# in both combo sampling and single-motor preuniform sampling.
+THUMB_FLEXOR_TIGHTEN_SEC = 3.0
+THUMB_COMBO_RECORD_SEC = 1.0
 ZERO_CALIBRATE_EVERY_POINTS = 50
 ZERO_CALIBRATE_MAX_ATTEMPTS = 3
 # After zero position is reached, keep within tolerance for this stable hold
@@ -301,6 +327,11 @@ RNG_SEED = None
 
 # Fixed finger execution order required by user.
 FINGER_ORDER_FIXED = ["thumb", "index", "middle", "ring", "little"]
+# Collection policy only: keep workspace models/raw data, but do not schedule
+# short-extensor + abduction + opposition/on. Short-extensor/adduction/on stays.
+THUMB_EXCLUDED_COMBO_IDS = frozenset({
+    "thumb_ext_short_out_opp_on",
+})
 
 def default_output_root(script_dir: Path) -> Path:
     return script_dir / "motor_test_logs" / "data_collection"

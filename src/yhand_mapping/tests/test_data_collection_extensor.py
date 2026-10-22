@@ -54,18 +54,18 @@ class Motors:
 def execute(monkeypatch, hand='left', finger='index', role='extensor',
             blocked=(), stale=False, nan_motor=None, single=False,
             disable_assist=False, runtime=None, preuniform=False,
-            include_stable=False, opposition=True):
+            include_stable=False, opposition=True, sway_role='adduction', opposition_target=-40.0):
     clock = Clock()
     monkeypatch.setattr(dc, 'time', clock)
     monkeypatch.setattr(dc, 'ANTAGONIST_RELEASE_ENABLE', not disable_assist)
     muscles = dc.HAND_MOTOR_MAP[hand][finger]
     ext = muscles[role]
-    sway = muscles['adduction']
+    sway = muscles[sway_role]
     targets = {ext: -80.0}
     if not single:
         targets[sway] = -60.0
         if finger == 'thumb' and opposition:
-            targets[muscles['opposition']] = -40.0
+            targets[muscles['opposition']] = float(opposition_target)
     node = Motors(hand, clock, blocked=blocked, stale=stale, nan_motor=nan_motor)
     defaults = dc._load_defaults_from_py(PACKAGE / 'scripts' / 'muscle_adjustment_defaults.py', hand)
     result = dc._execute_point(
@@ -77,7 +77,245 @@ def execute(monkeypatch, hand='left', finger='index', role='extensor',
         preuniform=preuniform,
         process_include_post_stable=include_stable,
     )
+    if finger == 'thumb' and not result['interrupted']:
+        for _, matrix in node.commands:
+            for other in ('index', 'middle', 'ring', 'little'):
+                for mid in dc.HAND_MOTOR_MAP[hand][other].values():
+                    assert matrix[mid - 1] == [0, 0, defaults['tor'][mid - 1], 0, 0]
     return node, result, defaults, targets
+
+
+def expected_post_matrix(hand, finger, defaults, thumb_combo=True):
+    protected = {mid for other in ('index', 'middle', 'ring', 'little')
+                 for mid in dc.HAND_MOTOR_MAP[hand][other].values()} if finger == 'thumb' else set()
+    if finger == 'thumb' and thumb_combo:
+        return [[0, 0, -0.1 if mid in dc.HAND_MOTOR_MAP[hand]['thumb'].values()
+                 else defaults['tor'][mid - 1], 0, 0] for mid in range(1, 29)]
+    return [[0, 0, defaults['tor'][mid - 1] if mid in protected else -0.08, 0, 0]
+            for mid in range(1, 29)]
+
+
+THUMB_COMBO_CASES = [(hand, role, sway, opp) for hand in ('left', 'right')
+                    for role in ('ext_short', 'ext_long', 'flex_long')
+                    for sway in ('adduction', 'abduction') for opp in ('on', 'off')]
+
+
+@pytest.mark.parametrize('hand,role,sway_role,opposition_mode', THUMB_COMBO_CASES)
+@pytest.mark.parametrize('failure', [None, 'sway', 'primary', 'opposition'])
+def test_thumb_combos_move_sway_first_then_hold_passive_current_and_record_one_second(
+        monkeypatch, hand, role, sway_role, opposition_mode, failure):
+    muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
+    sway, primary, opposition = muscles[sway_role], muscles[role], muscles['opposition']
+    active = {sway, primary, opposition}
+    passive = set(muscles.values()) - active
+    other_than_sway = set(muscles.values()) - {sway}
+    blocked = {'sway': sway, 'primary': primary, 'opposition': opposition}
+    trace = []
+    original_snapshot = Motors.snapshot
+
+    def snapshot(node):
+        snap = original_snapshot(node)
+        # Delay side movement so release->zero has a real waiting interval.
+        if node.matrix[sway - 1][3] > 0:
+            if node.clock.now < 0.4:
+                snap['pos'][sway - 1] = node.positions[sway - 1] = 0.0
+            trace.append((node.clock.now, [row[:] for row in node.matrix]))
+        snap['tor'] = np.asarray([row[2] for row in node.matrix])
+        return snap
+
+    monkeypatch.setattr(Motors, 'snapshot', snapshot)
+    node, result, defaults, targets = execute(
+        monkeypatch, hand, 'thumb', role, sway_role=sway_role,
+        opposition_target=-40.0 if opposition_mode == 'on' else 40.0,
+        blocked={blocked[failure]} if failure else (), include_stable=True)
+    assert result['motion_policy'] == 'sway_first'
+    assert result['reached'] == (failure is None)
+    assert result['timeout'] == (failure is not None)
+    assert result['sway_stage_reached'] == (failure != 'sway')
+    assert result['extensor_stage_reached'] is None
+    assert result['timeout_stage'] == ('sway_first' if failure == 'sway' else
+                                       'remaining_targets' if failure else '')
+    first = node.commands[0][1]
+    assert first[sway - 1] == [targets[sway], defaults['vel'][sway - 1],
+                              defaults['tor'][sway - 1], defaults['kp'][sway - 1],
+                              defaults['kd'][sway - 1]]
+    phase1 = [(t, matrix) for t, matrix in trace if matrix[primary - 1][3] == 0]
+    phase2 = [(t, matrix) for t, matrix in trace if matrix[primary - 1][3] > 0]
+    assert phase1 and any(t >= 1.0 for t, _ in phase1)
+    for t, matrix in phase1:
+        for mid in other_than_sway:
+            assert matrix[mid - 1] == [0, 0, 0.08 if t < 1.0 else 0.0, 0, 0]
+    assert bool(phase2) == (failure != 'sway')
+    for _, matrix in phase2:
+        for mid, target in targets.items():
+            assert matrix[mid - 1] == [target, defaults['vel'][mid - 1],
+                                      -0.08 if mid == primary and role.startswith('ext') else defaults['tor'][mid - 1],
+                                      defaults['kp'][mid - 1], defaults['kd'][mid - 1]]
+        for mid in passive:
+            if role == 'flex_long' and mid in (muscles['ext_short'], muscles['ext_long']):
+                assert matrix[mid - 1][:2] == [0, 0]
+                assert matrix[mid - 1][3:] == [0, 0]
+                assert matrix[mid - 1][2] in (0.05, 0.02)
+            else:
+                assert matrix[mid - 1] == [0, 0, 0.02, 0, 0]
+    if phase2 and role == 'flex_long':
+        for mid in (muscles['ext_short'], muscles['ext_long']):
+            currents = [matrix[mid - 1][2] for _, matrix in phase2]
+            assert currents[0] == 0.05
+            if failure == 'opposition':
+                assert currents[-1] == 0.02
+                assert currents == sorted(currents, reverse=True)
+            else:
+                assert all(current == 0.05 for current in currents)
+    if failure == 'sway':
+        assert result['move_elapsed_sec'] == pytest.approx(3.0, abs=dc.CONTROL_PERIOD_SEC)
+    elif failure:
+        assert result['move_elapsed_sec'] - result['sway_stage_elapsed_sec'] == pytest.approx(
+            3.0, abs=dc.CONTROL_PERIOD_SEC)
+    else:
+        assert result['move_elapsed_sec'] >= 2.4
+    assert result['assist_release_tor_plan'] == dict.fromkeys(other_than_sway, 0.08)
+    assert result['assist_release_plan_sec'] == dict.fromkeys(other_than_sway, 1.0)
+    tighten_start, tighten = node.commands[-3]
+    settle_start, settle = node.commands[-2]
+    record_start, record = node.commands[-1]
+    assert tighten_start == pytest.approx(result['move_elapsed_sec'])
+    assert tighten == settle == record == expected_post_matrix(hand, 'thumb', defaults)
+    tighten_sec = 3.0 if role == 'flex_long' else 2.0
+    assert settle_start - tighten_start == pytest.approx(tighten_sec)
+    assert result['post_arrival_tighten_elapsed_sec'] == pytest.approx(tighten_sec)
+    assert result['position_stable_confirmed']
+    assert result['position_stable_motor_ids'] == sorted(muscles.values())
+    assert record_start - settle_start == pytest.approx(2.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+    assert node.clock.now - record_start == pytest.approx(1.0, abs=0.0051)
+    assert result['result_window_label'] == '0.0-1.0'
+    assert 29 <= result['result_sample_count'] <= 31
+    assert min(row[0] for row in result['result_fb_rows']) == pytest.approx(0.0)
+    assert all(0 <= row[0] <= 1.0 for row in result['result_fb_rows'])
+    assert all(row[3::5] == [command[2] for command in record] for row in result['result_fb_rows'])
+    assert max(row[0] for row in result['process_fb_rows']) == pytest.approx(
+        record_start + 1.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+
+
+@pytest.mark.parametrize('kind', ['emergency', 'pause_hold', 'stop'])
+@pytest.mark.parametrize('phase,stop_at', [('release', 0.5), ('zero', 1.5),
+                                         ('remaining', 1.5), ('tighten', 4.5), ('settle', 6.5)])
+def test_thumb_sway_first_interruption_preserves_commands_in_each_phase(monkeypatch, kind, phase, stop_at):
+    muscles = dc.HAND_MOTOR_MAP['left']['thumb']
+    blocked = muscles['adduction'] if phase == 'zero' else muscles['ext_short']
+
+    def interrupt(node, clock):
+        if clock.now >= stop_at:
+            node.set_command_matrix([[0.0] * 5 for _ in range(28)])
+            return {'kind': kind}
+
+    node, result, _, _ = execute(
+        monkeypatch, 'left', 'thumb', 'ext_short', blocked={blocked}, runtime=interrupt)
+    assert result['interrupted'] and result['interrupt_reason'] == kind
+    assert node.commands[-1][1] == [[0] * 5 for _ in range(28)]
+    assert result['result_window_label'] == '0.0-1.0'
+    assert not result['result_fb_rows'] and not result['result_glove_rows']
+
+
+def test_thumb_combo_keeps_tightening_until_passive_motor_stops_before_recording(monkeypatch):
+    settle_start, record_start = [], []
+    original_wait = dc._wait_finger_position_stable
+    original_collect = dc._collect_window_samples
+    original_snapshot = Motors.snapshot
+    passive = dc.HAND_MOTOR_MAP['left']['thumb']['ext_long']
+
+    def wait(*args, **kwargs):
+        settle_start.append(dc.time.monotonic())
+        return original_wait(*args, **kwargs)
+
+    def collect(**kwargs):
+        record_start.append(dc.time.monotonic())
+        return original_collect(**kwargs)
+
+    def snapshot(node):
+        snap = original_snapshot(node)
+        if settle_start and not record_start:
+            assert node.matrix[passive - 1] == [0, 0, -0.1, 0, 0]
+            snap['pos'][passive - 1] = 100.0 * min(node.clock.now - settle_start[0], 3.0)
+        snap['glove48'][:] = 7.0 if record_start else -99.0
+        return snap
+
+    monkeypatch.setattr(dc, '_wait_finger_position_stable', wait)
+    monkeypatch.setattr(dc, '_collect_window_samples', collect)
+    monkeypatch.setattr(Motors, 'snapshot', snapshot)
+    node, result, _, _ = execute(monkeypatch, 'left', 'thumb', 'flex_long', include_stable=True)
+    assert result['position_stable_confirmed'] and result['position_stable_wait_sec'] >= 4.9
+    assert record_start[0] - settle_start[0] == pytest.approx(result['position_stable_wait_sec'])
+    assert node.clock.now - record_start[0] == pytest.approx(1.0, abs=0.0051)
+    assert result['result_glove_avg'] == pytest.approx([7.0] * 48)
+    assert max(row[0] for row in result['process_fb_rows']) == pytest.approx(
+        record_start[0] + 1.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+
+
+@pytest.mark.parametrize('hand', ['left', 'right'])
+@pytest.mark.parametrize('scenario', ['late_arrival', 'transient', 'stale', 'nan'])
+def test_thumb_flexor_extensor_release_stops_only_after_individual_arrival(monkeypatch, hand, scenario):
+    muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
+    flexor, opposition = muscles['flex_long'], muscles['opposition']
+    extensors = (muscles['ext_short'], muscles['ext_long'])
+    side = muscles['adduction']
+    original_snapshot = Motors.snapshot
+    stage_start, trace = [], []
+    sustained_from = 0.8 if scenario == 'transient' else 0.6
+
+    def snapshot(node):
+        snap = original_snapshot(node)
+        if node.matrix[flexor - 1][3] > 0:
+            if not stage_start:
+                stage_start.append(node.clock.now)
+            elapsed = node.clock.now - stage_start[0]
+            if scenario in ('late_arrival', 'transient'):
+                transient = scenario == 'transient' and 0.3 <= elapsed < 0.4
+                if elapsed < sustained_from and not transient:
+                    node.positions[flexor - 1] = snap['pos'][flexor - 1] = 0.0
+            elif 0.3 <= elapsed < 0.6:
+                if scenario == 'stale':
+                    snap['feedback_age'] = 2.0
+                else:
+                    snap['pos'][flexor - 1] = float('nan')
+            trace.append((node.clock.now, elapsed, snap['pos'][flexor - 1],
+                          [node.matrix[mid - 1][:] for mid in extensors]))
+            # The opposite sway keeps the normal +0.02 A hold throughout phase 2.
+            opposite_side = muscles['abduction']
+            assert node.matrix[opposite_side - 1] == [0, 0, 0.02, 0, 0]
+            assert node.matrix[side - 1][3] > 0
+        return snap
+
+    monkeypatch.setattr(Motors, 'snapshot', snapshot)
+    node, result, _, targets = execute(
+        monkeypatch, hand, 'thumb', 'flex_long', blocked={opposition})
+    assert result['timeout'] and result['timeout_stage'] == 'remaining_targets'
+    first_good = min(t for t, elapsed, pos, _ in trace
+                     if elapsed >= sustained_from and np.isfinite(pos)
+                     and abs(pos - targets[flexor]) <= 14)
+    first_hold = min(t for t, _, _, rows in trace if all(row == [0, 0, 0.02, 0, 0] for row in rows))
+    assert 1.0 <= first_hold - first_good <= 1.0 + 2.0 / dc.PROCESS_SAMPLE_HZ
+    for t, _, _, rows in trace:
+        assert all(row == [0, 0, 0.05 if t < first_hold else 0.02, 0, 0] for row in rows)
+    assert result['position_stable_confirmed'] and result['result_window_label'] == '0.0-1.0'
+    assert node.commands[-1][1][extensors[0] - 1] == [0, 0, -0.1, 0, 0]
+
+
+@pytest.mark.parametrize('hand', ['left', 'right'])
+@pytest.mark.parametrize('kind', ['emergency', 'pause_hold', 'stop'])
+def test_thumb_flexor_special_release_preserves_interrupt_commands(monkeypatch, hand, kind):
+    muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
+
+    def interrupt(node, clock):
+        if node.matrix[muscles['ext_short'] - 1][2] == 0.05 and clock.now >= 1.5:
+            node.set_command_matrix([[0.0] * 5 for _ in range(28)])
+            return {'kind': kind}
+
+    node, result, _, _ = execute(
+        monkeypatch, hand, 'thumb', 'flex_long', blocked={muscles['flex_long']}, runtime=interrupt)
+    assert result['interrupted'] and result['interrupt_reason'] == kind
+    assert node.commands[-1][1] == [[0] * 5 for _ in range(28)]
+    assert not result['result_fb_rows']
 
 
 CASES = [(hand, finger, 'extensor') for hand in ('left', 'right')
@@ -161,7 +399,7 @@ def test_preuniform_starts_with_motor_targets_without_extra_whole_hand_zero(monk
     assert not (tmp_path / 'zero_calibration_events.csv').exists()
 
 
-@pytest.mark.parametrize('hand,finger,role', CASES)
+@pytest.mark.parametrize('hand,finger,role', [case for case in CASES if case[1] != 'thumb'])
 @pytest.mark.parametrize('blocked', [False, True])
 def test_preuniform_extensor_releases_one_second_then_tensions_sway(monkeypatch, hand, finger, role, blocked):
     muscles = dc.HAND_MOTOR_MAP[hand][finger]
@@ -213,7 +451,7 @@ def test_preuniform_extensor_emergency_keeps_stop_command(monkeypatch, stop_at):
     assert result['assist_release_sec'] == min(1.0, result['move_elapsed_sec'])
 
 
-@pytest.mark.parametrize('hand,finger,role', PREUNIFORM_CASES)
+@pytest.mark.parametrize('hand,finger,role', [case for case in PREUNIFORM_CASES if case[1] != 'thumb'])
 def test_preuniform_assist_releases_half_second_then_zero_current_until_arrival(monkeypatch, hand, finger, role):
     node, result, defaults, targets = execute(monkeypatch, hand, finger, role,
                                             single=True, preuniform=True)
@@ -248,6 +486,85 @@ def test_preuniform_assist_releases_half_second_then_zero_current_until_arrival(
     assert result['assist_release_plan_sec'] == {mid: 0.5 if current else 0.0
                                                for mid, current in expected.items()}
     assert result['result_sample_count'] > 0
+
+
+@pytest.mark.parametrize('hand,role', [(hand, role) for hand in ('left', 'right')
+                                    for role in dc.HAND_MOTOR_MAP[hand]['thumb']])
+@pytest.mark.parametrize('blocked', [False, True])
+def test_thumb_preuniform_releases_all_passive_motors_then_tightens_only_thumb(monkeypatch, hand, role, blocked):
+    original_snapshot = Motors.snapshot
+
+    def snapshot(node):
+        snap = original_snapshot(node)
+        snap['tor'] = np.array([row[2] for row in node.matrix])
+        return snap
+
+    monkeypatch.setattr(Motors, 'snapshot', snapshot)
+    muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
+    active = muscles[role]
+    passive = set(muscles.values()) - {active}
+    other_motors = set(range(1, 29)) - set(muscles.values())
+    node, result, defaults, targets = execute(
+        monkeypatch, hand, 'thumb', role, single=True, preuniform=True,
+        blocked={active} if blocked else (), include_stable=True)
+    assert result['reached'] == (not blocked)
+    assert result['timeout'] == blocked
+    assert len(node.commands) == 5  # Release, current0, tighten, settle, sampling.
+    _, release = node.commands[0]
+    neutral_time, neutral = node.commands[1]
+    assert 1.0 <= neutral_time < 1.0 + dc.CONTROL_PERIOD_SEC
+    assert release[active - 1] == neutral[active - 1] == [
+        targets[active], defaults['vel'][active - 1],
+        -0.08 if role.startswith('ext') else defaults['tor'][active - 1],
+        defaults['kp'][active - 1], defaults['kd'][active - 1]]
+    for mid in passive:
+        assert release[mid - 1] == [0, 0, 0.08, 0, 0]
+        assert neutral[mid - 1] == [0, 0, 0, 0, 0]
+    assert result['assist_release_tor_plan'] == dict.fromkeys(passive, 0.08)
+    assert result['assist_release_plan_sec'] == dict.fromkeys(passive, 1.0)
+    tighten_time, tighten = node.commands[-3]
+    settle_time, settle = node.commands[-2]
+    sampling_time, sampling = node.commands[-1]
+    assert tighten_time == pytest.approx(result['move_elapsed_sec'])
+    tighten_sec = 3.0 if role == 'flex_long' else 2.0
+    assert settle_time - tighten_time == pytest.approx(tighten_sec)
+    assert result['post_arrival_tighten_elapsed_sec'] == pytest.approx(tighten_sec)
+    assert result['position_stable_confirmed']
+    assert sampling_time - settle_time == pytest.approx(2.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+    expected = [[0, 0, -0.1 if mid in muscles.values() else defaults['tor'][mid - 1], 0, 0]
+                for mid in range(1, 29)]
+    assert tighten == settle == sampling == expected
+    for _, matrix in node.commands:
+        for mid in other_motors:
+            assert matrix[mid - 1] == [0, 0, defaults['tor'][mid - 1], 0, 0]
+    assert result['result_sample_count'] > 0
+    assert all(row[3::5] == [command[2] for command in expected]
+               for row in result['result_fb_rows'])
+    assert result['result_window_label'] == '0.0-1.0'
+    assert 29 <= result['result_sample_count'] <= 31
+    assert min(row[0] for row in result['result_fb_rows']) == pytest.approx(0.0)
+    assert all(0.0 <= row[0] <= 1.0 for row in result['result_fb_rows'])
+    assert node.clock.now - sampling_time == pytest.approx(1.0, abs=0.0051)
+    assert max(row[0] for row in result['process_fb_rows']) == pytest.approx(
+        sampling_time + 1.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+
+
+@pytest.mark.parametrize('role', ['ext_short', 'opposition'])
+@pytest.mark.parametrize('stop_at', [0.5, 1.5, 3.5, 5.5])
+def test_thumb_preuniform_interruption_keeps_emergency_command(monkeypatch, role, stop_at):
+    def interrupt(node, clock):
+        if clock.now >= stop_at:
+            node.set_command_matrix([[0.0] * 5 for _ in range(28)])
+            return {'kind': 'emergency'}
+
+    active = dc.HAND_MOTOR_MAP['left']['thumb'][role]
+    node, result, _, _ = execute(
+        monkeypatch, 'left', 'thumb', role, single=True, preuniform=True,
+        blocked={active}, runtime=interrupt)
+    assert result['interrupted'] and result['interrupt_reason'] == 'emergency'
+    assert result['result_window_label'] == '0.0-1.0'
+    assert node.commands[-1][1] == [[0.0] * 5 for _ in range(28)]
+    assert not result['result_fb_rows'] and not result['result_glove_rows']
 
 
 @pytest.mark.parametrize('role', ['flex_deep', 'abduction', 'adduction'])
@@ -300,7 +617,7 @@ def test_only_preuniform_target_collection_selects_new_assist(monkeypatch, prefi
             {'global_point': 0}, {}, log_prefix=prefix)
 
 
-@pytest.mark.parametrize('hand,finger,role', CASES)
+@pytest.mark.parametrize('hand,finger,role', [case for case in CASES if case[1] != 'thumb'])
 def test_release_and_extensor_arrival_precede_remaining_targets(monkeypatch, hand, finger, role):
     node, result, defaults, targets = execute(monkeypatch, hand, finger, role)
     muscles = dc.HAND_MOTOR_MAP[hand][finger]
@@ -337,7 +654,7 @@ def test_release_and_extensor_arrival_precede_remaining_targets(monkeypatch, han
                                   else [0, 0, defaults['tor'][mid - 1], 0, 0])
     last_time, last = node.commands[-1]
     assert last_time - second_time >= dc.ARRIVAL_CONFIRM_SEC
-    assert last == [[0, 0, -0.08, 0, 0] for _ in range(28)]
+    assert last == expected_post_matrix(hand, finger, defaults)
     assert result['target_cmd_matrix'][muscles['adduction'] - 1][0] == targets[muscles['adduction']]
     assert result['assist_release_tor_plan'] == {mid: 0.05 for mid in released}
     assert result['assist_release_plan_sec'] == dict.fromkeys(released, result['extensor_stage_elapsed_sec'])
@@ -355,7 +672,7 @@ def test_extensor_timeout_does_not_start_sway_targets(monkeypatch):
     assert node.commands[-1][1] == [[0, 0, -0.08, 0, 0] for _ in range(28)]
 
 
-@pytest.mark.parametrize('hand,finger,role', CASES)
+@pytest.mark.parametrize('hand,finger,role', [case for case in CASES if case[1] != 'thumb'])
 def test_remaining_targets_have_their_own_timeout_with_other_finger_motors_neutral(monkeypatch, hand, finger, role):
     muscles = dc.HAND_MOTOR_MAP[hand][finger]
     sway = muscles['adduction']
@@ -371,14 +688,15 @@ def test_remaining_targets_have_their_own_timeout_with_other_finger_motors_neutr
 
 
 @pytest.mark.parametrize('hand', ['left', 'right'])
-def test_inactive_thumb_opposition_and_other_extensor_are_neutral_after_extensor_arrival(monkeypatch, hand):
+def test_inactive_thumb_opposition_and_other_extensor_hold_release_after_sway_arrival(monkeypatch, hand):
     node, result, _, targets = execute(monkeypatch, hand, 'thumb', 'ext_short', opposition=False)
     assert result['reached']
-    second = node.commands[1][1]
+    assert result['sway_stage_reached']
+    second = node.commands[2][1]
     muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
     assert muscles['opposition'] not in targets
-    assert second[muscles['opposition'] - 1] == [0, 0, 0, 0, 0]
-    assert second[muscles['ext_long'] - 1] == [0, 0, 0, 0, 0]
+    assert second[muscles['opposition'] - 1] == [0, 0, 0.02, 0, 0]
+    assert second[muscles['ext_long'] - 1] == [0, 0, 0.02, 0, 0]
 
 
 @pytest.mark.parametrize('hand', ['left', 'right'])
@@ -386,15 +704,17 @@ def test_inactive_thumb_opposition_and_other_extensor_are_neutral_after_extensor
 def test_emergency_during_remaining_targets_preserves_stop_command(monkeypatch, hand, finger, role):
     muscles = dc.HAND_MOTOR_MAP[hand][finger]
 
+    blocked_mid = muscles[role] if finger == 'thumb' else muscles['adduction']
+
     def emergency(node, clock):
-        second_stage = node.matrix[muscles['adduction'] - 1][3] > 0
+        second_stage = node.matrix[blocked_mid - 1][3] > 0
         if second_stage and clock.now - node.commands[-1][0] >= 0.5:
             node.set_command_matrix([[0.0] * 5 for _ in range(28)])
             return {'kind': 'emergency'}
 
     node, result, _, _ = execute(monkeypatch, hand, finger, role,
-                                blocked={muscles['adduction']}, runtime=emergency)
-    assert result['extensor_stage_reached']
+                                blocked={blocked_mid}, runtime=emergency)
+    assert result['sway_stage_reached' if finger == 'thumb' else 'extensor_stage_reached']
     assert result['interrupted'] and result['interrupt_reason'] == 'emergency'
     assert node.commands[-1][1] == [[0.0] * 5 for _ in range(28)]
     assert not result['post_arrival_tighten_applied']
@@ -424,6 +744,80 @@ def test_ordinary_release_restores_default_current_without_motion_rewind(monkeyp
     assert restored[active - 1][0] == -80.0 and restored[active - 1][3] > 0
     assert result['post_arrival_tighten_applied']
     assert result['result_sample_count'] > 0
+
+
+@pytest.mark.parametrize('hand', ['left', 'right'])
+@pytest.mark.parametrize('sway_role', ['adduction', 'abduction'])
+@pytest.mark.parametrize('single', [True])
+@pytest.mark.parametrize('blocked', [False, True])
+def test_thumb_flexor_releases_extensors_and_opposite_sway_one_second_then_zero_current(
+        monkeypatch, hand, sway_role, single, blocked):
+    muscles = dc.HAND_MOTOR_MAP[hand]['thumb']
+    flexor = muscles['flex_long']
+    extensors = {muscles['ext_short'], muscles['ext_long']}
+    released_motors = set(extensors)
+    if not single:
+        released_motors.add(muscles['abduction' if sway_role == 'adduction' else 'adduction'])
+    motion_samples = []
+    original_snapshot = Motors.snapshot
+
+    def snapshot(node):
+        snap = original_snapshot(node)
+        if node.matrix[flexor - 1][3] > 0:
+            motion_samples.append((node.clock.now, [row[:] for row in node.matrix]))
+            # Model a tendon that cannot reach its flexion target until its
+            # antagonists have had time to release, and remains blocked if they
+            # switch back to tension during the arrival confirmation window.
+            released = all(node.matrix[mid - 1][3:] == [0, 0]
+                           and node.matrix[mid - 1][2] in (0.0, 0.08)
+                           for mid in released_motors)
+            if node.clock.now < 0.65 or not released:
+                node.positions[flexor - 1] = 0.0
+                snap['pos'][flexor - 1] = 0.0
+        return snap
+
+    monkeypatch.setattr(Motors, 'snapshot', snapshot)
+    node, result, defaults, targets = execute(
+        monkeypatch, hand, 'thumb', 'flex_long', single=single,
+        blocked={flexor} if blocked else (), sway_role=sway_role)
+    assert result['reached'] == (not blocked)
+    assert result['timeout'] == blocked
+    assert result['move_elapsed_sec'] >= (3.0 if blocked else 1.65)
+    assert motion_samples
+    assert any(timestamp >= 1.0 for timestamp, _ in motion_samples)
+    for timestamp, matrix in motion_samples:
+        for mid in released_motors:
+            assert matrix[mid - 1] == [0, 0, 0.08 if timestamp < 1.0 else 0.0, 0, 0]
+        for mid, target in targets.items():
+            assert matrix[mid - 1] == [target, defaults['vel'][mid - 1],
+                                      defaults['tor'][mid - 1], defaults['kp'][mid - 1],
+                                      defaults['kd'][mid - 1]]
+        for mid in set(range(1, 29)) - set(muscles.values()):
+            assert matrix[mid - 1] == [0, 0, defaults['tor'][mid - 1], 0, 0]
+    for mid in released_motors:
+        assert result['assist_release_tor_plan'][mid] == 0.08
+        assert result['assist_release_plan_sec'][mid] == pytest.approx(1.0)
+    assert all(matrix == expected_post_matrix(hand, 'thumb', defaults, thumb_combo=not single)
+               for _, matrix in node.commands[-3:])
+    assert result['post_arrival_tighten_elapsed_sec'] == pytest.approx(3.0)
+    assert result['position_stable_confirmed']
+    assert result['result_window_label'] == '1.0-2.0'
+    assert result['result_sample_count'] > 0
+
+
+@pytest.mark.parametrize('stop_at', [0.5, 1.5])
+def test_thumb_flexor_release_and_zero_current_preserve_emergency_command(monkeypatch, stop_at):
+    def emergency(node, clock):
+        if clock.now >= stop_at:
+            node.set_command_matrix([[0.0] * 5 for _ in range(28)])
+            return {'kind': 'emergency'}
+
+    active = dc.HAND_MOTOR_MAP['left']['thumb']['flex_long']
+    node, result, _, _ = execute(
+        monkeypatch, 'left', 'thumb', 'flex_long', blocked={active}, runtime=emergency)
+    assert result['interrupted'] and result['interrupt_reason'] == 'emergency'
+    assert node.commands[-1][1] == [[0.0] * 5 for _ in range(28)]
+    assert not result['result_fb_rows'] and not result['result_glove_rows']
 
 
 @pytest.mark.parametrize('gap', ['stale', 'out_of_tolerance'])
@@ -498,7 +892,8 @@ def test_flexor_points_and_disabled_assist_use_original_simultaneous_motion(monk
         assert first[mid - 1][3:] == [defaults['kp'][mid - 1], defaults['kd'][mid - 1]]
 
 
-@pytest.mark.parametrize('hand,finger,role', CASES + PREUNIFORM_CASES)
+@pytest.mark.parametrize('hand,finger,role', [case for case in CASES + PREUNIFORM_CASES
+                                           if case[1] != 'thumb' or case[2] not in ('adduction', 'abduction')])
 @pytest.mark.parametrize('blocked', [False, True])
 def test_arrival_or_timeout_tightens_three_seconds_before_sampling(monkeypatch, hand, finger, role, blocked):
     original_snapshot = Motors.snapshot
@@ -515,20 +910,22 @@ def test_arrival_or_timeout_tightens_three_seconds_before_sampling(monkeypatch, 
     node, result, defaults, targets = execute(monkeypatch, hand=hand, finger=finger,
                                              role=role, include_stable=True,
                                              blocked={active} if blocked else ())
+    tighten_sec = 2.0 if finger == 'thumb' and role != 'flex_long' else 3.0
+    record_sec = 1.0 if finger == 'thumb' else 2.0
     assert result['reached'] == (not blocked)
     assert result['timeout'] == blocked
     tighten_start, tighten = node.commands[-3]
     settle_start, settle = node.commands[-2]
     stable_start, stable = node.commands[-1]
-    expected = [[0, 0, -0.08, 0, 0] for _ in range(28)]
+    expected = expected_post_matrix(hand, finger, defaults)
     assert tighten == expected
-    assert all(matrix == expected for timestamp, matrix in node.commands
-               if timestamp >= tighten_start)
-    assert settle_start - tighten_start == pytest.approx(3.0)
+    # A final movement command can share the tighten command's timestamp.
+    assert all(matrix == expected for _, matrix in node.commands[-3:])
+    assert settle_start - tighten_start == pytest.approx(tighten_sec)
     assert tighten_start == pytest.approx(result['move_elapsed_sec'])
-    assert stable == [[0, 0, -0.08, 0, 0] for _ in range(28)]
+    assert stable == expected
     assert result['post_arrival_tighten_applied']
-    assert result['post_arrival_tighten_elapsed_sec'] == pytest.approx(3.0)
+    assert result['post_arrival_tighten_elapsed_sec'] == pytest.approx(tighten_sec)
     assert result['position_stable_confirmed']
     assert result['position_stable_wait_sec'] == pytest.approx(2.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
     assert result['position_stable_motor_ids'] == sorted(dc.HAND_MOTOR_MAP[hand][finger].values())
@@ -536,10 +933,11 @@ def test_arrival_or_timeout_tightens_three_seconds_before_sampling(monkeypatch, 
     # No motor changes current at the settling or sampling boundaries.
     assert settle == stable == expected
     assert result['result_sample_count'] > 0
-    assert result['result_glove_avg'] == pytest.approx([-0.08] * 48)
+    assert result['result_glove_avg'] == pytest.approx([expected[0][2]] * 48)
     # The result clock starts after the stability gate while currents stay unchanged.
-    assert all(1.0 <= row[0] <= 2.0 for row in result['result_fb_rows'])
-    assert all(row[3::5] == [-0.08] * 28 for row in result['result_fb_rows'])
+    assert all((0.0 if finger == 'thumb' else 1.0) <= row[0] <= record_sec
+               for row in result['result_fb_rows'])
+    assert all(row[3::5] == [command[2] for command in expected] for row in result['result_fb_rows'])
     # CSV-mode process logs include the 3 s phase and retain the total elapsed time.
     # A motion snapshot can share the command timestamp at the phase boundary.
     # Inspect samples strictly inside each phase for its commanded currents.
@@ -550,7 +948,7 @@ def test_arrival_or_timeout_tightens_three_seconds_before_sampling(monkeypatch, 
     assert settle_rows
     assert all(row[3::5] == [command[2] for command in settle] for row in settle_rows)
     assert max(row[0] for row in result['process_fb_rows']) == pytest.approx(
-        stable_start + 2.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
+        stable_start + record_sec, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
 
 
 @pytest.mark.parametrize('role', ['extensor', 'flex_deep'])
@@ -739,6 +1137,49 @@ def test_sampling_waits_for_passive_motor_to_settle_and_excludes_wait_frames(mon
     assert max(row[0] for row in result['process_fb_rows']) == pytest.approx(
         sampling_start[0] + 2.0, abs=1.0 / dc.PROCESS_SAMPLE_HZ)
     assert dc._point_motion_metadata(result)['position_stable_confirmed']
+
+
+@pytest.mark.parametrize('hand', ['left', 'right'])
+@pytest.mark.parametrize('feedback', ['ok', 'blocked', 'missing', 'stale'])
+def test_thumb_zero_only_controls_thumb_and_preserves_four_finger_currents(monkeypatch, hand, feedback):
+    clock = Clock()
+    monkeypatch.setattr(dc, 'time', clock)
+    thumb = set(dc.HAND_MOTOR_MAP[hand]['thumb'].values())
+    node = Motors(hand, clock, blocked=thumb if feedback == 'blocked' else (),
+                  stale=feedback == 'stale')
+    initial = -np.arange(1, 29, dtype=float) * 20.0
+    node.positions[:] = initial
+    defaults = dc._load_defaults_from_py(PACKAGE / 'scripts' / 'muscle_adjustment_defaults.py', hand)
+    if feedback == 'missing':
+        node.snapshot = lambda: None
+
+    def forbidden_prerelease(*args, **kwargs):
+        pytest.fail('Thumb zero must never release the four fingers')
+
+    monkeypatch.setattr(dc, '_run_zero_prerelease', forbidden_prerelease)
+    result = dc._run_zero_calibration(node, defaults, finger='thumb')
+    assert result['success'] == (feedback == 'ok')
+    assert result['attempts'] == (1 if feedback == 'ok' else dc.ZERO_CALIBRATE_MAX_ATTEMPTS)
+    assert node.commands
+    opposition = dc.HAND_MOTOR_MAP[hand]['thumb']['opposition']
+    for _, matrix in node.commands[:result['attempts']]:
+        for mid in thumb:
+            assert matrix[mid - 1] == [
+                0, defaults['vel'][mid - 1],
+                0.08 if mid == opposition else defaults['tor'][mid - 1],
+                defaults['kp'][mid - 1], defaults['kd'][mid - 1]]
+    for _, matrix in node.commands:
+        for mid in set(range(1, 29)) - thumb:
+            assert matrix[mid - 1] == [0, 0, defaults['tor'][mid - 1], 0, 0]
+    for mid in set(range(1, 29)) - thumb:
+        assert node.positions[mid - 1] == initial[mid - 1]
+    if feedback == 'ok':
+        assert result['last_max_abs_pos'] == 0.0
+        assert all(node.positions[mid - 1] == 0.0 for mid in thumb)
+    else:
+        assert result['failed_stage'] == 'thumb'
+        if feedback in ('missing', 'stale'):
+            assert all(node.commands[-1][1][mid - 1] == [0] * 5 for mid in thumb)
 
 
 @pytest.mark.parametrize('hand', ['left', 'right'])
@@ -935,6 +1376,31 @@ def test_thumb_quota_and_opposition_split_are_unchanged():
     assert state['combo_target']['thumb_0'] == 1200.0
     assert state['mode_min']['full'] == 21600
     assert state['mode_max']['full'] == 26400
+
+
+def test_resume_with_fewer_thumb_combos_rebuilds_limits_and_keeps_history():
+    previous = quota_state('thumb', 12)
+    previous['combo_counts'] = dict.fromkeys(previous['combo_counts'], 500)
+    previous['mode_counts']['full'] = 5944
+    previous['mode_counts']['single'] = 56
+    previous['point_id'] = 6000
+    previous['preuniform_done'] = True
+    previous['done'] = True
+    payload = dc._finger_state_to_resume_payload(previous)
+    restored = quota_state('thumb', 10)
+    expected_min = restored['combo_min'].copy()
+    expected_max = restored['combo_max'].copy()
+    expected_mode_min = restored['mode_min'].copy()
+    expected_mode_max = restored['mode_max'].copy()
+    dc._apply_finger_resume_payload(restored, payload)
+    assert restored['point_id'] == 6000 and restored['preuniform_done']
+    assert set(restored['combo_counts']) == {f'thumb_{i}' for i in range(10)}
+    assert set(restored['combo_counts'].values()) == {500}
+    assert restored['mode_counts'] == previous['mode_counts']
+    assert restored['combo_min'] == expected_min and restored['combo_max'] == expected_max
+    assert restored['mode_min'] == expected_mode_min and restored['mode_max'] == expected_mode_max
+    assert not restored['done']
+    assert restored['nominal_total'] == 20000
 
 
 @pytest.mark.parametrize('legacy', [True, False])

@@ -1,0 +1,470 @@
+{
+  "schema_version": 1,
+  "hand": "left",
+  "finger": "ring",
+  "q_units": "degrees",
+  "motor_position_units": "degrees",
+  "motor_order": [
+    10,
+    17,
+    22,
+    21
+  ],
+  "default_model": "linear",
+  "q_reference": [
+    -2.0,
+    -6.0,
+    0.0,
+    -12.0
+  ],
+  "q_reference_source": "User corrected ring zero angles, 2026-10-20",
+  "reference_is_exact_zero_calibration": false,
+  "calibration_measured_by_script": false,
+  "zero_position_constraint": true,
+  "zero_motor_positions": {
+    "10": 0.0,
+    "17": 0.0,
+    "22": 0.0,
+    "21": 0.0
+  },
+  "q_relative_training_bounds": {
+    "q0": [
+      -5.968666666666665,
+      5.822500000000002
+    ],
+    "q1": [
+      -2.959666666666667,
+      25.1895
+    ],
+    "q2": [
+      -0.1337,
+      99.38646666666668
+    ],
+    "q3": [
+      -4.9209666666666685,
+      43.35693333333333
+    ]
+  },
+  "motor_position_training_bounds": {
+    "10": [
+      -11.86559677124023,
+      204.1871490478516
+    ],
+    "17": [
+      -250.2212829589844,
+      -0.05493331700563431
+    ],
+    "22": [
+      -4.114505577087402,
+      19.76134490966797
+    ],
+    "21": [
+      -23.07199287414551,
+      -4.33973217010498
+    ]
+  },
+  "motors": {
+    "10": {
+      "role": "extensor",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            0.0998374792669653,
+            3.1303763186357307,
+            1.1283312587143943,
+            1.1473141170528502
+          ],
+          "descriptive_fit_mae_motor_deg": 3.5069815919390654,
+          "descriptive_fit_r2": 0.9969514444729135,
+          "five_fold_validation": {
+            "mae": 3.5108594472152213,
+            "r2": 0.9969436775890568,
+            "rmse": 4.250591502365108
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            2.78797704135472,
+            10.149192459903219,
+            40.61303682783464,
+            10.342450234149775
+          ],
+          "coefficients": [
+            0.0,
+            -0.09030385271185279,
+            35.46202937752082,
+            58.560644147693885,
+            14.784007356521471,
+            0.26962478512589916,
+            1.5515343049623158,
+            -0.5873021137969994,
+            -0.5386260553734106,
+            -3.548312068398505,
+            -2.602131482847256,
+            -1.254636173452566,
+            -0.5640663800741087,
+            -0.7008458108615199,
+            -0.46007388084331485
+          ],
+          "descriptive_fit_mae_motor_deg": 0.6611529423058338,
+          "descriptive_fit_r2": 0.9998782830923773,
+          "five_fold_validation": {
+            "mae": 0.6636606354442205,
+            "r2": 0.9998771841711421,
+            "rmse": 0.8520733033031028
+          }
+        }
+      }
+    },
+    "17": {
+      "role": "flexor",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.9888874442478386,
+            -4.701406792543601,
+            -1.1413999902639804,
+            -1.2494986229533727
+          ],
+          "descriptive_fit_mae_motor_deg": 7.234586812406063,
+          "descriptive_fit_r2": 0.9910642486600985,
+          "five_fold_validation": {
+            "mae": 7.243087322046483,
+            "r2": 0.9910374535146518,
+            "rmse": 8.527870869641516
+          }
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            2.78797704135472,
+            10.149192459903219,
+            40.61303682783464,
+            10.342450234149775
+          ],
+          "coefficients": [
+            0.0,
+            6.114353158645802,
+            -42.74997356406361,
+            -71.51432426876548,
+            -19.128716131928012,
+            -0.6581987284361674,
+            -2.4669941034304834,
+            -1.8689399944247032,
+            -1.460828134363795,
+            -0.5622177717416632,
+            7.645633258875408,
+            8.069013844614908,
+            -0.8051589891877539,
+            -3.0049909711479645,
+            -1.5062128373199493
+          ],
+          "descriptive_fit_mae_motor_deg": 0.8865473661829457,
+          "descriptive_fit_r2": 0.9998365378199008,
+          "five_fold_validation": {
+            "mae": 0.8905315177887334,
+            "r2": 0.9998344849072983,
+            "rmse": 1.1588939770575937
+          }
+        }
+      }
+    },
+    "22": {
+      "role": "adduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -1.2730498465586373,
+            0.6582796919042382,
+            -0.07069193848395074,
+            -0.08362085406108608
+          ],
+          "effective_degree": 1,
+          "descriptive_fit_mae_motor_deg": 4.440225337168383,
+          "descriptive_fit_r2": -0.202123259825836,
+          "metric_note": "Compared against original recorded motor coordinates; neutral-output alignment changes the intercept. Source affine validation does not directly apply."
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -1.2730498465586373,
+            0.6582796919042382,
+            -0.07069193848395074,
+            -0.08362085406108608,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "effective_degree": 1,
+          "descriptive_fit_mae_motor_deg": 4.440225337168383,
+          "descriptive_fit_r2": -0.202123259825836,
+          "metric_note": "Compared against original recorded motor coordinates; neutral-output alignment changes the intercept. Source affine validation does not directly apply."
+        }
+      },
+      "training_points": 2170,
+      "source_collection": "data_collection/20261021_171709_left_collection/left_hand/ring",
+      "training_scope": "formal xy point IDs <2214; preuniform and last500 edge points excluded; includes timeouts",
+      "training_q_relative_bounds": {
+        "q0": [
+          -10.90776666666667,
+          3.720633333333333
+        ],
+        "q1": [
+          -2.2358666666666682,
+          25.3727
+        ],
+        "q2": [
+          -0.03786666666666668,
+          100.4304333333333
+        ],
+        "q3": [
+          -3.32736666666667,
+          42.41936666666667
+        ]
+      },
+      "source_affine_coefficients": [
+        -4.387839668499766,
+        -1.2730498465586373,
+        0.6582796919042382,
+        -0.07069193848395074,
+        -0.08362085406108608
+      ],
+      "source_affine_pose_grid_5fold": {
+        "mae_motor_deg": 1.421912227923986,
+        "rmse_motor_deg": 1.836870029698165,
+        "p95_abs_motor_deg": 3.6502175596690445,
+        "r2": 0.8204656139192213
+      },
+      "output_alignment": "m(delta_q) = f(delta_q) - f([0,0,0,0]); source intercept removed, not zero-constrained refitting",
+      "source_validation_note": "Source validation is for the affine model before neutral-output subtraction, not calibrated motor-zero teleoperation accuracy."
+    },
+    "21": {
+      "role": "abduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.3639031607010055,
+            -0.347486996429509,
+            0.04464212963110632,
+            -0.008604078486167075
+          ],
+          "effective_degree": 1,
+          "descriptive_fit_mae_motor_deg": 6.876668254557497,
+          "descriptive_fit_r2": -1.8246160303487766,
+          "metric_note": "Compared against original recorded motor coordinates; neutral-output alignment changes the intercept. Source affine validation does not directly apply."
+        },
+        "quadratic": {
+          "degree": 2,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.3639031607010055,
+            -0.347486996429509,
+            0.04464212963110632,
+            -0.008604078486167075,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "effective_degree": 1,
+          "descriptive_fit_mae_motor_deg": 6.876668254557497,
+          "descriptive_fit_r2": -1.8246160303487766,
+          "metric_note": "Compared against original recorded motor coordinates; neutral-output alignment changes the intercept. Source affine validation does not directly apply."
+        }
+      },
+      "training_points": 2170,
+      "source_collection": "data_collection/20261021_171709_left_collection/left_hand/ring",
+      "training_scope": "formal xy point IDs <2214; preuniform and last500 edge points excluded; includes timeouts",
+      "training_q_relative_bounds": {
+        "q0": [
+          -10.90776666666667,
+          3.720633333333333
+        ],
+        "q1": [
+          -2.2358666666666682,
+          25.3727
+        ],
+        "q2": [
+          -0.03786666666666668,
+          100.4304333333333
+        ],
+        "q3": [
+          -3.32736666666667,
+          42.41936666666667
+        ]
+      },
+      "source_affine_coefficients": [
+        -6.87666825455752,
+        1.3639031607010055,
+        -0.347486996429509,
+        0.04464212963110632,
+        -0.008604078486167075
+      ],
+      "source_affine_pose_grid_5fold": {
+        "mae_motor_deg": 0.9687504940685387,
+        "rmse_motor_deg": 1.2370151504305402,
+        "p95_abs_motor_deg": 2.458397695921345,
+        "r2": 0.9114115172787214
+      },
+      "output_alignment": "m(delta_q) = f(delta_q) - f([0,0,0,0]); source intercept removed, not zero-constrained refitting",
+      "source_validation_note": "Source validation is for the affine model before neutral-output subtraction, not calibrated motor-zero teleoperation accuracy."
+    }
+  },
+  "fit_limitation": "Ring side mapping uses new four-q affine slopes with f(0) subtracted to retain relative q=0 -> motor=0. Exact zero of new collection is unknown; source affine validation errors are not motor-zero control validation. Extensor/flexor models unchanged.",
+  "extensor_flexor_training": {
+    "source_collection": "data_collection/ring",
+    "training_scope": "4307 formal active_mode=xy points, including timeouts; original motor feedback unchanged",
+    "training_points": 4307,
+    "source_csv_sha256": "79e6c5c3d2654051b3edebbc040b9a851ea36cfd835ddc97f4c96a18de4c078b",
+    "fitting_method": "least squares without intercept; origin-preserving scaling, no input centering",
+    "validation_seed": 20261021
+  },
+  "source_collection_by_motor": {
+    "10": "data_collection/ring",
+    "17": "data_collection/ring",
+    "22": "data_collection/20261021_171709_left_collection/left_hand/ring",
+    "21": "data_collection/20261021_171709_left_collection/left_hand/ring"
+  },
+  "training_points_by_motor": {
+    "10": 4307,
+    "17": 4307,
+    "22": 2170,
+    "21": 2170
+  },
+  "side_motor_mapping": "four-q affine slopes, reference-aligned as f(delta_q)-f(0); linear for both model choices",
+  "source_collection": "Mixed sources; see source_collection_by_motor",
+  "fitting_method": "M10/M17 unchanged; M22/M21 use four-q affine OLS slopes with neutral output subtracted",
+  "model_updated_at": "2026-10-22",
+  "side_source_snapshot_sha256": "a14239ae23e9ebbdf68d4028898cfd717c442239bda8c6d0b67676344041730b"
+}
