@@ -21,6 +21,23 @@ control = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(control)
 
 
+def operator_angles(finger):
+    if finger=='five':
+        neutral,delta = operator_angles('four')
+        return [8.,15.,-7.,2.]+neutral,[1.,10.,12.,3.]+delta
+    neutral,delta = [14.,22.,-3.,8.],[-1.,10.,20.,5.]
+    if finger in ('both','three','four'):
+        neutral += [-6.,1.,2.,3.]
+        delta += [2.,8.,15.,4.]
+    if finger in ('three','four'):
+        neutral += [3.,-4.,6.,2.]
+        delta += [3.,6.,12.,2.]
+    if finger=='four':
+        neutral += [-3.,5.,-7.,9.]
+        delta += [-2.,12.,18.,6.]
+    return neutral,delta
+
+
 def fake_sdk():
     import rclpy
     from rclpy.signals import SignalHandlerOptions
@@ -51,11 +68,10 @@ def fake_sdk():
     glove_slice = mapper.glove_slice
     q_reference = list(mapper.q_reference)
     q_count = len(q_reference)
-    operator_zero = [14.,22.,-3.,8.]+([-6.,1.,2.,3.] if finger=='both' else [])
-    operator_delta = [-1.,10.,20.,5.]+([2.,8.,15.,4.] if finger=='both' else [])
+    operator_zero,operator_delta = operator_angles(finger)
     positions = [0.0]*28
-    for mid,value in zip(motor_ids,[20.0,-20.0,-5.0,-30.0]*(2 if finger=='both' else 1)):
-        positions[mid-1] = value
+    for index,mid in enumerate(motor_ids):
+        positions[mid-1] = [20.0,-20.0,-5.0,-30.0][index%4]
     pose_frames = 0
     command_frames = 0
 
@@ -88,13 +104,13 @@ def fake_sdk():
         if manus_mode:
             glove_values[glove_slice] = operator_zero  # Operator zero differs from robot/model zero.
             if mode=='manus_zero_motion' and command_frames<40:
-                glove_values[glove_slice.start+(6 if finger=='both' else 2)] += 10*(command_frames%2)
+                glove_values[glove_slice.stop-2] += 10*(command_frames%2)
             if pose_frames>=1:
                 glove_values[glove_slice] = [a+b for a,b in zip(operator_zero,operator_delta)]
             if mode=='manus_outside_ranges' and pose_frames>=8:
                 glove_values[glove_slice.start] = 34.44  # dq0=+20.44, beyond old joint and motor ranges.
                 if pose_frames>=12:
-                    glove_values[glove_slice] = [34.44,122.0,97.0,108.0]+([a+b for a,b in zip(operator_zero[4:],[20.44,100,100,100])] if finger=='both' else [])
+                    glove_values[glove_slice] = [a+b for a,b in zip(operator_zero,[20.44,100,100,100]*(q_count//4))]
             if mode=='manus_invalid' and pose_frames>=8:
                 glove_values[glove_slice.start+1] = float('nan')
         glove.data = glove_values
@@ -440,6 +456,156 @@ class RingPlanningTests(unittest.TestCase):
         self.assertFalse(window.completed)
 
 
+class MiddlePlanningTests(unittest.TestCase):
+    def setUp(self):
+        self.mapper = control.create_mapper('middle')
+        self.defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')
+
+    def test_five_motor_roles_manus_columns_and_neutral(self):
+        self.assertEqual(self.mapper.motor_ids,(23,16,2,9,24))
+        self.assertEqual(list(self.mapper.motor_roles.values()),['伸肌','浅屈肌','深屈肌','内收','外展'])
+        self.assertEqual(control.left_manus_q(list(range(48)),'middle'),[16,17,18,19])
+        self.assertFalse(self.mapper.config['reference_is_exact_zero_calibration'])
+        self.assertEqual(self.mapper.config['training_points'],5889)
+        for model in ['linear','quadratic']:
+            self.assertEqual(self.mapper.predict([0]*4,model=model),
+                             {f'M{mid}':0.0 for mid in self.mapper.motor_ids})
+            self.assertEqual(self.mapper.predict(self.mapper.q_reference,relative=False,model=model),
+                             self.mapper.predict([0]*4,model=model))
+
+    def test_reviewed_linear_slopes_used_as_incremental_positions(self):
+        # Independent source values from the reviewed 5889-point analyses.
+        slopes = {
+            23:[-.240285827950276,1.736833748379735,1.470990540060083,1.244149286558528],
+            16:[1.020289262325872,-1.586283636939883,-1.525096966360787,.064612310526444],
+            2:[-.279927034843161,-1.478943781767162,-1.816393181481213,-1.190385960468595],
+            9:[2.454986483641826,-.233850309626944,-.055759318247319,.037899134617371],
+            24:[-2.239807650193766,-.234990832988493,.044941243611357,.013148191315889],
+        }
+        for q in [[10,0,0,0],[0,10,0,0],[0,0,10,0],[0,0,0,10],[-5,10,20,5]]:
+            linear = self.mapper.predict(q)
+            self.assertEqual(linear,self.mapper.predict(q,model='quadratic'))
+            absolute = self.mapper.predict([a+b for a,b in zip(q,self.mapper.q_reference)],relative=False)
+            for mid,b in slopes.items():
+                expected = math.fsum(a*v for a,v in zip(b,q))
+                self.assertAlmostEqual(linear[f'M{mid}'],expected,places=10)
+                self.assertAlmostEqual(absolute[f'M{mid}'],expected,places=10)
+            # The two side motors also compensate flexion, not just q0.
+        self.assertNotEqual(self.mapper.predict([0,10,0,0])['M9'],0)
+        self.assertNotEqual(self.mapper.predict([0,10,0,0])['M24'],0)
+
+    def test_no_middle_limits_all_five_position_channels_and_other23_tension(self):
+        self.assertEqual(control.FINGER_MOTOR_POSITION_LIMITS_DEG['middle'],{})
+        for q in [[0]*4,[1000]*4,[-1000]*4]:
+            target = control.prepare_target(self.mapper,q)
+            self.assertEqual(target['q_relative'],q)
+            self.assertEqual(target['positions'],target['predicted_positions'])
+            self.assertEqual(target['clipped_motors'],[])
+            frame = control.position_matrix(self.defaults,target['positions'],
+                                            control.default_feedforward('middle'),'middle')
+            stopped = control.current_matrix(self.defaults,'middle')
+            self.assertEqual(len(frame),28)
+            for mid in range(1,29):
+                if mid in self.mapper.motor_ids:
+                    self.assertEqual(frame[mid-1],[target['positions'][mid],0,0,
+                                                  self.defaults['kp'][mid-1],self.defaults['kd'][mid-1]])
+                    self.assertEqual(stopped[mid-1],[0]*5)
+                else:
+                    expected = [0,0,self.defaults['tor'][mid-1],0,0]
+                    self.assertEqual(frame[mid-1],expected)
+                    self.assertEqual(stopped[mid-1],expected)
+
+    def test_cli_loads_middle_model_and_keeps_unlimited_predictions(self):
+        command = [sys.executable,str(SCRIPT),'--finger','middle','--dry-run','--q','1000','1000','1000','1000']
+        result = subprocess.run(command,text=True,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data['motor_position_limits_deg'],{})
+        self.assertEqual(data['motor_positions'],data['motor_predictions'])
+        self.assertEqual(data['clipped_motors'],[])
+        self.assertEqual(set(data['motor_positions']),{f'M{mid}' for mid in self.mapper.motor_ids})
+        for mid in self.mapper.motor_ids:
+            self.assertEqual(data['mit_matrix'][mid-1][0],data['motor_predictions'][f'M{mid}'])
+            self.assertEqual(data['mit_matrix'][mid-1][2],0)
+        pure = subprocess.run([sys.executable,str(PACKAGE/'scripts/left_little_q_to_motor.py'),
+                               '--finger','middle','--json','--q','1000','1000','1000','1000'],
+                              text=True,capture_output=True,timeout=10)
+        self.assertEqual(pure.returncode,0,pure.stderr)
+        self.assertEqual(json.loads(pure.stdout),data['motor_positions'])
+
+    def test_unlimited_middle_still_rejects_nonfinite_values_and_incomplete_targets(self):
+        for q in [[0]*3,[0]*5,[math.nan,0,0,0],[0,math.inf,0,0]]:
+            with self.assertRaises(ValueError):
+                control.prepare_target(self.mapper,q)
+        bad = dict.fromkeys(self.mapper.motor_ids,0.0)
+        bad[24] = math.nan
+        with self.assertRaises(ValueError):
+            control.clamp_motor_positions(bad,'middle')
+        del bad[24]
+        with self.assertRaises(KeyError):
+            control.clamp_motor_positions(bad,'middle')
+
+
+class IndexPlanningTests(unittest.TestCase):
+    def setUp(self):
+        self.mapper = control.create_mapper('index')
+        self.defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')
+
+    def test_motor_roles_manus_columns_and_zero_reference(self):
+        self.assertEqual(self.mapper.motor_ids,(25,3,15,1,28))
+        self.assertEqual(list(self.mapper.motor_roles.values()),['伸肌','浅屈肌','深屈肌','内收','外展'])
+        self.assertEqual(control.left_manus_q(list(range(48)),'index'),[12,13,14,15])
+        self.assertEqual(self.mapper.config['training_points'],5606)
+        self.assertFalse(self.mapper.config['reference_is_exact_zero_calibration'])
+        for model in ['linear','quadratic']:
+            self.assertEqual(self.mapper.predict([0]*4,model=model),dict.fromkeys(['M25','M3','M15','M1','M28'],0))
+            self.assertEqual(self.mapper.predict(self.mapper.q_reference,relative=False,model=model),self.mapper.predict([0]*4,model=model))
+
+    def test_five_reviewed_four_q_slopes_and_incremental_coordinate_contract(self):
+        coefficients = {
+            25:[-.5122106284143217,1.817614305304914,1.467752913953902,.9282331488603762],
+            3:[1.1272488209145868,-2.0787199572568613,-1.4627658022626469,.1261715228834114],
+            15:[.16910393305268956,-2.0664404406540777,-1.7128276331060386,-1.1004042223038264],
+            1:[2.065612664761241,-.1352024493728004,-.09967583403088713,-.21285099641829958],
+            28:[-2.148852040698864,-.7555797182544404,.1375418966114658,.30823654283247837],
+        }
+        for q in [[10,0,0,0],[0,10,0,0],[0,0,10,0],[0,0,0,10],[-5,10,20,5]]:
+            prediction = self.mapper.predict(q)
+            self.assertEqual(prediction,self.mapper.predict(q,model='quadratic'))
+            raw = self.mapper.predict([a+b for a,b in zip(q,self.mapper.q_reference)],relative=False)
+            for mid,b in coefficients.items():
+                self.assertAlmostEqual(prediction[f'M{mid}'],sum(a*v for a,v in zip(q,b)),places=11)
+                self.assertAlmostEqual(raw[f'M{mid}'],prediction[f'M{mid}'],places=11)
+
+    def test_all_five_unlimited_channels_current_policy_and_other23_defaults(self):
+        for q in [[0]*4,[1000]*4,[-1000]*4]:
+            plan = control.prepare_target(self.mapper,q)
+            self.assertEqual(plan['positions'],plan['predicted_positions'])
+            self.assertEqual(plan['clipped_motors'],[])
+            frame = control.position_matrix(self.defaults,plan['positions'],control.default_feedforward('index'),'index')
+            stop = control.current_matrix(self.defaults,'index')
+            for mid in range(1,29):
+                if mid in self.mapper.motor_ids:
+                    self.assertEqual(frame[mid-1],[plan['positions'][mid],0,0,self.defaults['kp'][mid-1],self.defaults['kd'][mid-1]])
+                    self.assertEqual(stop[mid-1],[0]*5)
+                else:
+                    self.assertEqual(frame[mid-1],[0,0,self.defaults['tor'][mid-1],0,0])
+                    self.assertEqual(stop[mid-1],frame[mid-1])
+
+    def test_both_cli_entry_points_load_index_without_ros(self):
+        for script,options in [(SCRIPT,['--dry-run']),(PACKAGE/'scripts/left_little_q_to_motor.py',['--json'])]:
+            result = subprocess.run([sys.executable,str(script),'--finger','index',*options,'--q','-5','10','20','5'],text=True,capture_output=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+            obj = json.loads(result.stdout)
+            self.assertEqual(obj['motor_positions'] if script==SCRIPT else obj,self.mapper.predict([-5,10,20,5]))
+
+    def test_invalid_inputs_and_wrong_finger_model_rejected(self):
+        for q in [[0]*3,[0]*5,[0,math.nan,0,0],[math.inf,0,0,0]]:
+            with self.assertRaises(ValueError):control.prepare_target(self.mapper,q)
+        with self.assertRaises(ValueError):
+            control.FingerMapper(PACKAGE/'config/left_middle_q_to_motor_models.json',finger='index')
+
+
 class BothPlanningTests(unittest.TestCase):
     def setUp(self):
         self.mapper=control.create_mapper('both')
@@ -495,6 +661,136 @@ class BothPlanningTests(unittest.TestCase):
         self.assertIsNone(source.reference)
         self.assertEqual(source.update([0]*8,2),[0]*8)
         self.assertEqual(source.reference_range,[0]*8)
+
+
+class ThreePlanningTests(unittest.TestCase):
+    def setUp(self):
+        self.mapper = control.create_mapper('three')
+        self.defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')
+
+    def test_independent_twelve_angles_and_all_thirteen_motor_outputs(self):
+        self.assertEqual(self.mapper.motor_ids,(23,16,2,9,24,10,17,22,21,11,13,18,20))
+        self.assertEqual(control.left_manus_q(list(range(48)),'three'),list(range(16,28)))
+        angles = [-5,10,20,5]+[-4,15,30,8]+[2,8,15,4]
+        for model in ['linear','quadratic']:
+            result = self.mapper.predict(angles,model=model)
+            expected = {}
+            for i,finger in enumerate(['middle','ring','little']):
+                expected.update(control.create_mapper(finger).predict(angles[4*i:4*i+4],model=model))
+            self.assertEqual(result,expected)
+            raw = [a+b for a,b in zip(angles,self.mapper.q_reference)]
+            actual = self.mapper.predict(raw,relative=False,model=model)
+            for mid in result:self.assertAlmostEqual(actual[mid],result[mid],places=10)
+        self.assertEqual(self.mapper.motor_inputs[23],[0,1,2,3])
+        self.assertEqual(self.mapper.motor_inputs[22],[4,5,6,7])
+        self.assertEqual(self.mapper.motor_inputs[18],[8])
+        with self.assertRaises(ValueError):self.mapper.predict([0]*8)
+
+    def test_one_frame_preserves_partial_limits_currents_and_other15_tension(self):
+        q = [1000]*12
+        target = control.prepare_target(self.mapper,q)
+        self.assertTrue(target['clipped_motors'])
+        self.assertFalse(set(target['clipped_motors']) & {23,16,2,9,24})
+        frame = control.position_matrix(self.defaults,target['positions'],control.default_feedforward('three'),
+                                        'three',feedback_positions=dict.fromkeys(self.mapper.motor_ids,0.0))
+        stop = control.current_matrix(self.defaults,'three')
+        limits = control.FINGER_MOTOR_POSITION_LIMITS_DEG['three']
+        self.assertEqual(len(limits),8)
+        for mid in range(1,29):
+            if mid not in self.mapper.motor_ids:
+                self.assertEqual(frame[mid-1],[0,0,self.defaults['tor'][mid-1],0,0])
+                self.assertEqual(stop[mid-1],frame[mid-1])
+                continue
+            self.assertEqual(stop[mid-1],[0]*5)
+            self.assertEqual(frame[mid-1][0],target['positions'][mid])
+            self.assertEqual(frame[mid-1][3:],[self.defaults['kp'][mid-1],self.defaults['kd'][mid-1]])
+            if mid in [22,21]:
+                self.assertEqual(frame[mid-1][2],control.directional_side_current(target['positions'][mid],0))
+            else:self.assertEqual(frame[mid-1][2],-.08 if mid in [11,13,18,20] else 0)
+            if mid in limits:
+                lo,hi = limits[mid]
+                self.assertLessEqual(lo,frame[mid-1][0]);self.assertLessEqual(frame[mid-1][0],hi)
+            else:self.assertEqual(frame[mid-1][0],target['predicted_positions'][mid])
+
+    def test_three_cli_and_all_twelve_zero_angles_must_stabilize(self):
+        command = [sys.executable,str(SCRIPT),'--finger','three','--dry-run','--q']
+        run = subprocess.run(command+['0']*12,text=True,capture_output=True,timeout=10)
+        self.assertEqual(run.returncode,0,run.stderr)
+        data = json.loads(run.stdout)
+        self.assertEqual(len(data['motor_positions']),13)
+        self.assertEqual(set(data['model_files']),{'middle','ring','little'})
+        self.assertEqual(set(data['motor_positions'].values()),{0})
+        self.assertEqual(len(data['mit_matrix']),28)
+        invalid = subprocess.run(command+['0']*8,text=True,capture_output=True,timeout=10)
+        self.assertNotEqual(invalid.returncode,0)
+        source = control.ManusRelativeInput(1,max_range_deg=3,size=12)
+        for moving_index in [0,6,11]:
+            source.invalidate()
+            source.update([0]*12,0)
+            moving = [0]*12;moving[moving_index] = 10
+            self.assertIsNone(source.update(moving,.5))
+            self.assertIsNone(source.update([0]*12,1))
+            self.assertIsNone(source.reference)
+        self.assertEqual(source.update([0]*12,2),[0]*12)
+
+
+class FourPlanningTests(unittest.TestCase):
+    def setUp(self):
+        self.mapper = control.create_mapper('four')
+        self.defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')
+
+    def test_four_independent_groups_correct_columns_and_eighteen_unique_motors(self):
+        self.assertEqual(self.mapper.motor_ids,(25,3,15,1,28,23,16,2,9,24,10,17,22,21,11,13,18,20))
+        self.assertEqual(control.left_manus_q(list(range(48)),'four'),list(range(12,28)))
+        q = [-5,10,20,5]+[2,15,25,8]+[-3,10,15,4]+[1,8,12,2]
+        for model in ['linear','quadratic']:
+            expected = {}
+            for i,f in enumerate(['index','middle','ring','little']):
+                expected.update(control.create_mapper(f).predict(q[i*4:i*4+4],model=model))
+            self.assertEqual(self.mapper.predict(q,model=model),expected)
+        self.assertEqual(self.mapper.motor_inputs[25],[0,1,2,3])
+        self.assertEqual(self.mapper.motor_inputs[23],[4,5,6,7])
+        self.assertEqual(self.mapper.motor_inputs[22],[8,9,10,11])
+        self.assertEqual(self.mapper.motor_inputs[18],[12])
+        with self.assertRaises(ValueError):self.mapper.predict([0]*12)
+
+    def test_four_shared_frame_preserves_each_current_limit_and_other10_tension(self):
+        plan = control.prepare_target(self.mapper,[1000]*16)
+        limits = control.FINGER_MOTOR_POSITION_LIMITS_DEG['four']
+        self.assertEqual(len(limits),8)
+        frame = control.position_matrix(self.defaults,plan['positions'],control.default_feedforward('four'),
+                                        'four',feedback_positions=dict.fromkeys(self.mapper.motor_ids,0))
+        stop = control.current_matrix(self.defaults,'four')
+        for mid in range(1,29):
+            if mid not in self.mapper.motor_ids:
+                self.assertEqual(frame[mid-1],[0,0,self.defaults['tor'][mid-1],0,0])
+                self.assertEqual(stop[mid-1],frame[mid-1]);continue
+            self.assertEqual(frame[mid-1][0],plan['positions'][mid])
+            self.assertEqual(frame[mid-1][3:],[self.defaults['kp'][mid-1],self.defaults['kd'][mid-1]])
+            self.assertEqual(stop[mid-1],[0]*5)
+            if mid in limits:
+                lo,hi = limits[mid];self.assertLessEqual(lo,frame[mid-1][0]);self.assertLessEqual(frame[mid-1][0],hi)
+            else:self.assertEqual(plan['positions'][mid],plan['predicted_positions'][mid])
+            ff = control.directional_side_current(plan['positions'][mid],0) if mid in [22,21] else -.08 if mid in [11,13,18,20] else 0
+            self.assertEqual(frame[mid-1][2],ff)
+        self.assertEqual(frame[1][3:],[300,50])  # Preserve the requested middle M2 tuning.
+        self.assertEqual(frame[14][3:],[200,30])
+
+    def test_cli_and_reference_wait_for_all_sixteen_angles(self):
+        result = subprocess.run([sys.executable,str(SCRIPT),'--finger','four','--dry-run','--q',*(['0']*16)],text=True,capture_output=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        obj = json.loads(result.stdout)
+        self.assertEqual(len(obj['motor_positions']),18)
+        self.assertEqual(set(obj['model_files']),{'index','middle','ring','little'})
+        self.assertEqual(set(obj['motor_positions'].values()),{0})
+        for j in [0,6,10,15]:
+            reference = control.ManusRelativeInput(1,max_range_deg=3,size=16)
+            reference.update([0]*16,0)
+            moving=[0]*16;moving[j]=10
+            self.assertIsNone(reference.update(moving,.5))
+            self.assertIsNone(reference.update([0]*16,1))
+            self.assertIsNone(reference.reference)
+            self.assertEqual(reference.update([0]*16,2),[0]*16)
 
 
 class LaunchWiringTests(unittest.TestCase):
@@ -635,17 +931,112 @@ class LaunchWiringTests(unittest.TestCase):
         self.assertFalse(any(isinstance(a,TimerAction) for a in actions))
 
 
+    def test_middle_launch_routes_manual_and_manus_to_same_five_motor_controller(self):
+        from launch import LaunchContext
+        from launch.actions import ExecuteProcess,TimerAction
+        from launch.utilities import perform_substitutions
+        spec = importlib.util.spec_from_file_location('middle_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        context = LaunchContext()
+        context.launch_configurations.update(finger='middle',input_mode='1',relative='true',model='linear',
+            start_driver_node='true',start_angle_input_terminal='true',start_glove_node='true',joint_angle_topic='',
+            current='',publish_hz='50',manus_topic='/test_manus',manus_raw_topic='/test_raw',
+            manus_zero_seconds='1',manus_timeout='.5')
+        with patch.object(module.shutil,'which',return_value='/fake/gnome-terminal'):
+            actions = module._launch_setup(context)
+        controller = next(a for a in actions if isinstance(a,ExecuteProcess))
+        command = [perform_substitutions(context,p) for p in controller.cmd]
+        self.assertEqual(command[command.index('--finger')+1],'middle')
+        self.assertEqual(command[command.index('--target-topic')+1],'/left_middle_target_q')
+        self.assertNotIn('--current',command)
+        terminal = next(a for a in actions if isinstance(a,TimerAction)).actions[0]
+        command = [perform_substitutions(context,p) for p in terminal.cmd]
+        self.assertEqual(command[command.index('--finger')+1],'middle')
+        context.launch_configurations['input_mode'] = '2'
+        with patch.object(module.shutil,'which') as terminal_lookup:
+            actions = module._launch_setup(context);terminal_lookup.assert_not_called()
+        processes = [a for a in actions if isinstance(a,ExecuteProcess)]
+        self.assertEqual(len(processes),2)
+        commands = [[perform_substitutions(context,p) for p in a.cmd] for a in processes]
+        controller = next(c for c in commands if str(SCRIPT) in c)
+        self.assertEqual(controller[controller.index('--finger')+1],'middle')
+        self.assertEqual(controller[controller.index('--input-mode')+1],'manus')
+        self.assertNotIn('--target-topic',controller)
+        self.assertFalse(any(isinstance(a,TimerAction) for a in actions))
+
+
+    def test_three_manus_has_one_controller_and_manual_requires_twelve_angle_topic(self):
+        from launch import LaunchContext
+        from launch.actions import ExecuteProcess,TimerAction
+        from launch.utilities import perform_substitutions
+        spec = importlib.util.spec_from_file_location('three_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        context = LaunchContext()
+        context.launch_configurations.update(finger='three',input_mode='2',relative='true',model='linear',
+            start_driver_node='true',start_angle_input_terminal='true',start_glove_node='true',joint_angle_topic='',
+            current='',publish_hz='50',manus_topic='/test_manus',manus_raw_topic='/test_raw',
+            manus_zero_seconds='1',manus_timeout='.5')
+        with patch.object(module.shutil,'which') as terminal:
+            actions = module._launch_setup(context);terminal.assert_not_called()
+        commands = [[perform_substitutions(context,p) for p in a.cmd] for a in actions if isinstance(a,ExecuteProcess)]
+        self.assertEqual(len(commands),2)
+        controllers = [c for c in commands if str(SCRIPT) in c]
+        self.assertEqual(len(controllers),1)
+        self.assertEqual(controllers[0][controllers[0].index('--finger')+1],'three')
+        self.assertFalse(any(isinstance(a,TimerAction) for a in actions))
+        context.launch_configurations['input_mode'] = '1'
+        with self.assertRaisesRegex(ValueError,'12角'):
+            module._launch_setup(context)
+        context.launch_configurations['start_angle_input_terminal'] = 'false'
+        actions = module._launch_setup(context)
+        controller = next(a for a in actions if isinstance(a,ExecuteProcess))
+        command = [perform_substitutions(context,p) for p in controller.cmd]
+        self.assertEqual(command[command.index('--target-topic')+1],'/left_three_target_q')
+
+
+    def test_index_and_four_launch_select_the_matching_input_and_controller(self):
+        from launch import LaunchContext
+        from launch.actions import ExecuteProcess,TimerAction
+        from launch.utilities import perform_substitutions
+        spec=importlib.util.spec_from_file_location('index_four_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        for finger in ['index','four','thumb','five']:
+            ctx=LaunchContext()
+            ctx.launch_configurations.update(finger=finger,input_mode='2',relative='true',model='linear',
+                start_driver_node='true',start_angle_input_terminal='true',start_glove_node='true',joint_angle_topic='',
+                current='',publish_hz='50',manus_topic='/test_manus',manus_raw_topic='/test_raw',manus_zero_seconds='1',manus_timeout='.5')
+            with patch.object(module.shutil,'which') as terminal:
+                actions=module._launch_setup(ctx);terminal.assert_not_called()
+            commands=[[perform_substitutions(ctx,p) for p in a.cmd] for a in actions if isinstance(a,ExecuteProcess)]
+            self.assertEqual(len(commands),2)
+            ctrl=next(c for c in commands if str(SCRIPT) in c)
+            self.assertEqual(ctrl[ctrl.index('--finger')+1],finger)
+            self.assertNotIn('--current',ctrl)
+            ctx.launch_configurations['input_mode']='1'
+            if finger in ('four','five'):
+                with self.assertRaisesRegex(ValueError,'16角' if finger=='four' else '20角'):module._launch_setup(ctx)
+                ctx.launch_configurations['start_angle_input_terminal']='false'
+            with patch.object(module.shutil,'which',return_value='/fake/terminal'):
+                actions=module._launch_setup(ctx)
+            ctrl=next(a for a in actions if isinstance(a,ExecuteProcess))
+            command=[perform_substitutions(ctx,p) for p in ctrl.cmd]
+            self.assertEqual(command[command.index('--target-topic')+1],f'/left_{finger}_target_q')
+            if finger in ('index','thumb'):
+                term=next(a for a in actions if isinstance(a,TimerAction)).actions[0]
+                command=[perform_substitutions(ctx,p) for p in term.cmd]
+                self.assertEqual(command[command.index('--finger')+1],finger)
+
+
 class FakeSDKIntegrationTests(unittest.TestCase):
     def exercise(self,mode='normal',interrupt=False,signum=signal.SIGINT,finger='little'):
         mapper = control.create_mapper(finger)
         motor_ids = mapper.motor_ids
         motor_limits = control.FINGER_MOTOR_POSITION_LIMITS_DEG[finger]
         q_count = len(mapper.q_reference)
-        expected_current = ({str(mid):(0 if mid in [10,17,22,21] else -.08) for mid in motor_ids}
-                            if finger=='both' else 0 if finger=='ring' else -.08)
+        expected_current = ({str(mid):(-.08 if mid in [11,13,18,20] else 0) for mid in motor_ids}
+                            if finger in ('both','three','four','five') else 0 if finger in ('ring','middle','index','thumb') else -.08)
         expected_for_mid = lambda mid:expected_current[str(mid)] if isinstance(expected_current,dict) else expected_current
-        operator_zero = [14,22,-3,8]+([-6,1,2,3] if finger=='both' else [])
-        operator_delta = [-1,10,20,5]+([2,8,15,4] if finger=='both' else [])
+        operator_zero,operator_delta = operator_angles(finger)
         try:
             from devices_pkg.msg import YHandMsg
         except ImportError:
@@ -710,7 +1101,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                         self.assertEqual(actual[:2],[0,0])
                         self.assertEqual(actual[3:],[0,0])
                         self.assertAlmostEqual(actual[2],defaults['tor'][mid-1],places=6)
-                if finger in ('ring','both'):
+                if finger in ('ring','both','three','four','five'):
                     for mid in [22,21]:
                         row = entry['matrix'][mid-1]
                         if row[3]>0:
@@ -718,7 +1109,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                         else:
                             self.assertEqual(row,[0]*5)
             active = [e for e in commands if e['matrix'][motor_ids[0]-1][3]>0]
-            if finger in ('ring','both') and mode=='manus_long_run':
+            if finger in ('ring','both','three','four','five') and mode=='manus_long_run':
                 self.assertGreater(active[-1]['time']-active[0]['time'],2)
                 self.assertTrue(all(e['matrix'][20][3]>0 and e['matrix'][21][3]>0 for e in active))
             if mode=='manus_wrong_hand':
@@ -730,8 +1121,8 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                 return {f'M{mid}':value for mid,value in planned['positions'].items()}
             predicted = expected_positions([0]*q_count)
             moved = expected_positions(operator_delta)
-            outside = expected_positions([20.44,10,20,5]+(operator_delta[4:] if finger=='both' else []))
-            saturated = expected_positions([20.44,100,100,100]*(2 if finger=='both' else 1))
+            outside = expected_positions([20.44,10,20,5]+operator_delta[4:])
+            saturated = expected_positions([20.44,100,100,100]*(q_count//4))
             if mode.startswith('manus') and mode!='manus_wrong_hand':
                 self.assertTrue(any(abs(e['matrix'][motor_ids[0]-1][0]-moved[f'M{motor_ids[0]}'])<1e-4 for e in active))
             if mode=='manus_outside_ranges':
@@ -741,7 +1132,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                     self.assertAlmostEqual(active[-1]['matrix'][mid-1][0],saturated[f'M{mid}'],places=4)
             for entry in active:
                 for mid in motor_ids:
-                    if finger in ('ring','both') and mid in [22,21]:
+                    if finger in ('ring','both','three','four','five') and mid in [22,21]:
                         self.assertLess(min(abs(entry['matrix'][mid-1][2]-v) for v in [-.05,0,.05]),1e-6)
                     else:
                         self.assertAlmostEqual(entry['matrix'][mid-1][2],expected_for_mid(mid),places=6)
@@ -750,14 +1141,15 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                     if mode=='manus_outside_ranges':
                         candidates += [outside[f'M{mid}'],saturated[f'M{mid}']]
                     self.assertLess(min(abs(entry['matrix'][mid-1][0]-v) for v in candidates),1e-4)
-                    lo,hi = motor_limits[mid]
-                    self.assertLessEqual(lo,entry['matrix'][mid-1][0])
-                    self.assertLessEqual(entry['matrix'][mid-1][0],hi)
+                    if mid in motor_limits:
+                        lo,hi = motor_limits[mid]
+                        self.assertLessEqual(lo,entry['matrix'][mid-1][0])
+                        self.assertLessEqual(entry['matrix'][mid-1][0],hi)
             # Final stop frames must reach the fake before its child process exits.
             for mid in motor_ids:
                 self.assertEqual(commands[-1]['matrix'][mid-1],[0]*5)
             self.assertEqual(entries[-1]['event'],'driver_stopped')
-            if finger=='both':
+            if finger in ('both','three','four','five'):
                 self.assertEqual(sum(e['event']=='ready' for e in entries),1)
                 if mode.startswith('manus') and mode not in ('manus_wrong_hand','manus_outside_ranges'):
                     for mid in motor_ids:
@@ -767,14 +1159,26 @@ class FakeSDKIntegrationTests(unittest.TestCase):
             self.assertEqual(metadata['current_A'],expected_current)
             self.assertEqual(metadata['position_target_mode'],'direct')
             self.assertFalse(metadata['joint_range_checks'])
-            self.assertTrue(metadata['motor_position_range_checks'])
-            self.assertEqual(metadata['motor_position_limit_action'],'clip')
+            self.assertEqual(metadata['motor_position_range_checks'],bool(motor_limits))
+            self.assertEqual(metadata['motor_position_limit_action'],'clip' if motor_limits else 'none')
             self.assertEqual(metadata['motor_position_limits_deg'],
                              {str(mid):list(pair) for mid,pair in motor_limits.items()})
             self.assertEqual(metadata['finger'],finger)
             self.assertEqual(metadata['motor_ids'],list(motor_ids))
-            self.assertEqual(metadata['position_motor_ids'],list(motor_limits))
-            if finger in ('ring','both'):
+            self.assertEqual(metadata['position_motor_ids'],list(motor_ids))
+            if finger in ('middle','index'):
+                self.assertEqual(metadata['model_effective_degrees'],dict.fromkeys(map(str,motor_ids),1))
+            if finger in ('thumb','five'):
+                self.assertEqual({mid:metadata['model_effective_degrees'][mid] for mid in ['4','6','7','8','14','27']},
+                                 {'4':1,'6':2,'7':1,'8':2,'14':2,'27':2})
+                self.assertTrue(all(mid in metadata['unlimited_position_motor_ids'] for mid in [4,6,7,8,14,27]))
+            if finger=='three':
+                self.assertEqual(metadata['unlimited_position_motor_ids'],[23,16,2,9,24])
+                self.assertEqual(len(metadata['motor_position_limits_deg']),8)
+            if finger=='four':
+                self.assertEqual(metadata['unlimited_position_motor_ids'],[25,3,15,1,28,23,16,2,9,24])
+                self.assertEqual(len(metadata['motor_position_limits_deg']),8)
+            if finger in ('ring','both','three','four','five'):
                 self.assertEqual(metadata['release_currents_A'],{})
                 self.assertEqual(metadata['directional_side_motor_ids'],[22,21])
                 self.assertEqual(metadata['side_direction_current_A'],.05)
@@ -792,11 +1196,24 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                 self.assertEqual(metadata['finger_q_slices'],{'ring':[0,4],'little':[4,8]})
                 self.assertEqual(set(metadata['model_files']),{'ring','little'})
                 self.assertTrue(any(row['target_relative_q4']=='2.0' and row['target_relative_q5']=='8.0' for row in records))
+            if finger=='three' and mode.startswith('manus'):
+                self.assertEqual(metadata['finger_q_slices'],{'middle':[0,4],'ring':[4,8],'little':[8,12]})
+                self.assertEqual(set(metadata['model_files']),{'middle','ring','little'})
+                self.assertTrue(any(row['target_relative_q4']=='2.0' and row['target_relative_q8']=='3.0' for row in records))
+            if finger=='four' and mode.startswith('manus'):
+                self.assertEqual(metadata['finger_q_slices'],{'index':[0,4],'middle':[4,8],'ring':[8,12],'little':[12,16]})
+                self.assertEqual(set(metadata['model_files']),{'index','middle','ring','little'})
+                self.assertTrue(any(row['target_relative_q4']=='2.0' and row['target_relative_q12']=='-2.0' for row in records))
+            if finger=='five' and mode.startswith('manus'):
+                self.assertEqual(metadata['finger_q_slices'],{'thumb':[0,4],'index':[4,8],'middle':[8,12],
+                                                            'ring':[12,16],'little':[16,20]})
+                self.assertEqual(set(metadata['model_files']),{'thumb','index','middle','ring','little'})
+                self.assertTrue(any(row['target_relative_q0']=='1.0' and row['target_relative_q16']=='-2.0' for row in records))
             if mode in ('normal','topic') and not interrupt:
                 self.assertTrue(any(row['measured_q0'] for row in records))
-                for mid in motor_limits:
+                for mid in motor_ids:
                     self.assertAlmostEqual(active[-1]['matrix'][mid-1][0],predicted[f'M{mid}'],places=4)
-            if finger in ('ring','both'):
+            if finger in ('ring','both','three','four','five'):
                 for mid in [22,21]:
                     position_records = [row for row in records if row[f'm{mid}_control_mode']=='position']
                     if mode!='manus_wrong_hand':
@@ -817,7 +1234,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                     self.assertEqual(metadata['manus_zero_q'],operator_zero)
                     self.assertGreater(metadata['manus_target_updates'],1)
                     self.assertTrue(any(row['target_relative_q1']=='10.0' for row in records))
-                if finger in ('ring','both'):
+                if finger in ('ring','middle','index','thumb','both','three','four','five'):
                     self.assertEqual(metadata['manus_zero_max_range_deg'],3)
                     if mode!='manus_wrong_hand':
                         self.assertTrue(all(value<=3 for value in metadata['manus_zero_observed_range_deg']))
@@ -826,17 +1243,102 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                     self.assertEqual(metadata['manus_zero_observed_range_deg'],[0]*q_count)
                 if mode=='manus_outside_ranges':
                     self.assertEqual(metadata['manus_rejected_targets'],0)
-                    self.assertGreater(metadata['motor_position_clipped_targets'],0)
                     self.assertTrue(any(float(row['target_relative_q0'])>20 for row in records if row['target_relative_q0']))
-                    saturated_rows = [row for row in records if row[f'm{motor_ids[0]}_clipped']=='1' and row[f'm{motor_ids[1]}_clipped']=='1']
-                    self.assertTrue(saturated_rows)
-                    self.assertTrue(all(float(row[f'm{motor_ids[0]}_prediction'])>450 and float(row[f'm{motor_ids[0]}_command'])==450
-                                        and float(row[f'm{motor_ids[1]}_prediction'])<-400 and float(row[f'm{motor_ids[1]}_command'])==-400
-                                        for row in saturated_rows))
+                    if finger in ('middle','index'):
+                        self.assertEqual(metadata['motor_position_clipped_targets'],0)
+                        for row in records:
+                            for mid in motor_ids:
+                                if row[f'm{mid}_control_mode']=='position':
+                                    self.assertEqual(row[f'm{mid}_prediction'],row[f'm{mid}_command'])
+                    else:
+                        self.assertGreater(metadata['motor_position_clipped_targets'],0)
+                        saturated_rows = [row for row in records if row[f'm{motor_ids[0]}_clipped']=='1' and row[f'm{motor_ids[1]}_clipped']=='1']
+                        self.assertTrue(saturated_rows)
+                        self.assertTrue(all(float(row[f'm{motor_ids[0]}_prediction'])>450 and float(row[f'm{motor_ids[0]}_command'])==450
+                                            and float(row[f'm{motor_ids[1]}_prediction'])<-400 and float(row[f'm{motor_ids[1]}_command'])==-400
+                                            for row in saturated_rows))
                 if mode in ('manus_dropout','manus_invalid','manus_right_only'):
                     self.assertIn('Manus左手数据',metadata['failure'])
             if expected:
                 self.assertIn('failure',metadata)
+
+    def test_index_single_point_controls_five_channels(self):
+        self.exercise(finger='index')
+
+    def test_thumb_single_point_controls_six_channels(self):
+        self.exercise(finger='thumb')
+
+    def test_thumb_manus_uses_mixed_polynomial_model(self):
+        self.exercise('manus',finger='thumb')
+
+    def test_thumb_manus_dropout_stops_all_six(self):
+        self.exercise('manus_dropout',finger='thumb')
+
+    def test_five_manus_updates_24_channels_with_one_driver(self):
+        self.exercise('manus',finger='five')
+
+    def test_five_feedback_dropout_stops_all24_before_driver_exit(self):
+        self.exercise('dropout',finger='five')
+
+    def test_five_manus_dropout_stops_all24(self):
+        self.exercise('manus_dropout',finger='five')
+
+    def test_five_zero_waits_for_little_finger_to_stop(self):
+        self.exercise('manus_zero_motion',finger='five')
+
+    def test_index_manus_relative_four_q_controls_all_five(self):
+        self.exercise('manus',finger='index')
+
+    def test_index_manus_dropout_stops_all_five(self):
+        self.exercise('manus_dropout',finger='index')
+
+    def test_index_zero_requires_four_stable_angles(self):
+        self.exercise('manus_zero_motion',finger='index')
+
+    def test_index_unlimited_joint_and_motor_targets_continue_updating(self):
+        self.exercise('manus_outside_ranges',finger='index')
+
+    def test_four_single_point_controls_eighteen_with_one_driver(self):
+        self.exercise(finger='four')
+
+    def test_four_manus_uses_four_independent_models(self):
+        self.exercise('manus',finger='four')
+
+    def test_four_manus_dropout_stops_all_eighteen(self):
+        self.exercise('manus_dropout',finger='four')
+
+    def test_four_zero_waits_for_little_finger_to_stop(self):
+        self.exercise('manus_zero_motion',finger='four')
+
+    def test_four_feedback_dropout_stops_all_eighteen(self):
+        self.exercise('dropout',finger='four')
+
+    def test_three_single_point_controls_thirteen_motors_with_one_driver(self):
+        self.exercise(finger='three')
+
+    def test_three_manus_updates_three_independent_models(self):
+        self.exercise('manus',finger='three')
+
+    def test_three_manus_dropout_stops_all_thirteen_before_driver_exit(self):
+        self.exercise('manus_dropout',finger='three')
+
+    def test_three_zero_waits_for_little_finger_motion_to_stop(self):
+        self.exercise('manus_zero_motion',finger='three')
+
+    def test_middle_single_point_controls_five_motors(self):
+        self.exercise(finger='middle')
+
+    def test_middle_manus_uses_relative_four_q_for_five_targets(self):
+        self.exercise('manus',finger='middle')
+
+    def test_middle_manus_dropout_stops_all_five(self):
+        self.exercise('manus_dropout',finger='middle')
+
+    def test_middle_zero_waits_until_all_four_angles_are_stable(self):
+        self.exercise('manus_zero_motion',finger='middle')
+
+    def test_middle_large_angles_continue_without_motor_limits(self):
+        self.exercise('manus_outside_ranges',finger='middle')
 
     def test_both_single_point_controls_eight_motors_with_one_driver(self):
         self.exercise(finger='both')

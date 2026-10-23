@@ -95,6 +95,10 @@ if(BUILD_TESTING)
     TIMEOUT 120
     ENV "PYTHONDONTWRITEBYTECODE=1"
   )
+  ament_add_pytest_test(left_thumb_q_to_motor tests/test_left_thumb_q_to_motor.py
+    TIMEOUT 30
+    ENV "PYTHONDONTWRITEBYTECODE=1"
+  )
 endif()
 
 ament_package()

@@ -1,0 +1,533 @@
+{
+  "schema_version": 1,
+  "hand": "left",
+  "finger": "index",
+  "q_units": "degrees",
+  "motor_position_units": "degrees",
+  "motor_order": [
+    25,
+    3,
+    15,
+    1,
+    28
+  ],
+  "default_model": "linear",
+  "q_reference": [
+    3.627,
+    -6.019,
+    0.028,
+    -2.929
+  ],
+  "q_reference_source": "Collection startup frame; not an exact synchronized index motor-zero pose",
+  "reference_is_exact_zero_calibration": false,
+  "calibration_measured_by_script": false,
+  "zero_position_constraint": true,
+  "zero_motor_positions": {
+    "25": 0.0,
+    "3": 0.0,
+    "15": 0.0,
+    "1": 0.0,
+    "28": 0.0
+  },
+  "output_alignment": "Incremental control: delta_m = f(q_neutral + delta_q) - f(q_neutral) = B * delta_q; neutral motor targets are zero. Original affine intercepts retained for provenance.",
+  "model_policy": "All five motors use four-q linear slopes; quadratic is a compatibility alias with all second-order terms zero.",
+  "side_motor_mapping": "M1/M28 four-q linear compensation",
+  "source_collection": "data_collection/left_hand/index (startup 2026-10-16T16:16:39.591776)",
+  "training_points": 5606,
+  "training_scope": "All 5606 formal xy points, including 3299 movement timeouts, excluding 93 preuniform points; original result data sheets",
+  "fitting_method": "Reviewed affine OLS slopes used as incremental position changes; not origin-constrained refitting",
+  "fit_limitation": "Source affine validation applies before motor-zero rebasing. It is not measured motor-zero control or robot joint accuracy. Exact index motor-zero q has not been calibrated.",
+  "q_relative_training_bounds": {
+    "q0": [
+      -19.65676666666666,
+      29.538766666666664
+    ],
+    "q1": [
+      -5.0192333333333305,
+      85.75913333333332
+    ],
+    "q2": [
+      -0.06620000000000002,
+      99.77543333333332
+    ],
+    "q3": [
+      -7.475899999999999,
+      46.775700000000015
+    ]
+  },
+  "motor_position_training_bounds": {
+    "25": [
+      -15.05172920227051,
+      295.4862976074219
+    ],
+    "3": [
+      -290.5111999511719,
+      13.68022762934367
+    ],
+    "15": [
+      -340.3961181640625,
+      10.97201487223307
+    ],
+    "1": [
+      -27.74132347106934,
+      46.49556058247884
+    ],
+    "28": [
+      -88.8271713256836,
+      16.604509862264
+    ]
+  },
+  "motor_position_limits_deg": {},
+  "motor_position_limit_source": "Initial index teleoperation uses the existing middle-finger unrestricted motor-target policy; training ranges are descriptive only.",
+  "source_analysis_sha256": {
+    "index_linearity": "bc9cf1198d53bac94bdc8f44d8b6a5f282a73e8ac30227548022c7fd3a500775",
+    "index_side_linearity": "c514d7a08011cae65b15291244e7be2ae66713c0b1e182cdc2701e2c97676343"
+  },
+  "motors": {
+    "25": {
+      "role": "extensor",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -0.5122106284143217,
+            1.817614305304914,
+            1.467752913953902,
+            0.9282331488603762
+          ]
+        },
+        "quadratic": {
+          "degree": 2,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -0.5122106284143217,
+            1.817614305304914,
+            1.467752913953902,
+            0.9282331488603762,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_affine_coefficients": [
+        9.264496313056107,
+        -0.5122106284143217,
+        1.817614305304914,
+        1.467752913953902,
+        0.9282331488603762
+      ],
+      "source_affine_descriptive_fit": {
+        "n": 5606,
+        "r2": 0.9934998840129361,
+        "mae": 5.524447911116078,
+        "rmse": 6.883671942754957,
+        "p95_abs_error": 14.218139499218339
+      },
+      "source_affine_leave_one_combo_out": {
+        "n": 5606,
+        "r2": 0.9921489220873774,
+        "mae": 6.005155398724891,
+        "rmse": 7.565266917021603,
+        "p95_abs_error": 15.603655134109784
+      },
+      "source_validation_note": "These metrics describe original affine coordinates before relative motor-zero alignment."
+    },
+    "3": {
+      "role": "flex_shallow",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.1272488209145868,
+            -2.0787199572568613,
+            -1.4627658022626469,
+            0.1261715228834114
+          ]
+        },
+        "quadratic": {
+          "degree": 2,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.1272488209145868,
+            -2.0787199572568613,
+            -1.4627658022626469,
+            0.1261715228834114,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_affine_coefficients": [
+        -23.373514177516437,
+        1.1272488209145868,
+        -2.0787199572568613,
+        -1.4627658022626469,
+        0.1261715228834114
+      ],
+      "source_affine_descriptive_fit": {
+        "n": 5606,
+        "r2": 0.9875701632643729,
+        "mae": 7.817731102194177,
+        "rmse": 9.82070775068946,
+        "p95_abs_error": 19.357009332638757
+      },
+      "source_affine_leave_one_combo_out": {
+        "n": 5606,
+        "r2": 0.9849042770169296,
+        "mae": 8.69552818205487,
+        "rmse": 10.822735231901744,
+        "p95_abs_error": 21.078526259274472
+      },
+      "source_validation_note": "These metrics describe original affine coordinates before relative motor-zero alignment."
+    },
+    "15": {
+      "role": "flex_deep",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            0.16910393305268956,
+            -2.0664404406540777,
+            -1.7128276331060386,
+            -1.1004042223038264
+          ]
+        },
+        "quadratic": {
+          "degree": 2,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            0.16910393305268956,
+            -2.0664404406540777,
+            -1.7128276331060386,
+            -1.1004042223038264,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_affine_coefficients": [
+        -10.752582574743382,
+        0.16910393305268956,
+        -2.0664404406540777,
+        -1.7128276331060386,
+        -1.1004042223038264
+      ],
+      "source_affine_descriptive_fit": {
+        "n": 5606,
+        "r2": 0.9954358624788399,
+        "mae": 5.674720086948859,
+        "rmse": 6.703946751302333,
+        "p95_abs_error": 12.138936363494775
+      },
+      "source_affine_leave_one_combo_out": {
+        "n": 5606,
+        "r2": 0.9945615193262669,
+        "mae": 6.14005298903365,
+        "rmse": 7.317959305198499,
+        "p95_abs_error": 13.622357950735386
+      },
+      "source_validation_note": "These metrics describe original affine coordinates before relative motor-zero alignment."
+    },
+    "1": {
+      "role": "adduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            2.065612664761241,
+            -0.1352024493728004,
+            -0.09967583403088713,
+            -0.21285099641829958
+          ]
+        },
+        "quadratic": {
+          "degree": 2,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            2.065612664761241,
+            -0.1352024493728004,
+            -0.09967583403088713,
+            -0.21285099641829958,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_affine_coefficients": [
+        0.733409658989151,
+        2.065612664761241,
+        -0.1352024493728004,
+        -0.09967583403088713,
+        -0.21285099641829958
+      ],
+      "source_affine_descriptive_fit": {
+        "n": 5606,
+        "r2": 0.9013509711079235,
+        "mae": 5.495805265039002,
+        "rmse": 6.920854066781952,
+        "p95_abs_error": 13.703118864854911
+      },
+      "source_affine_leave_one_combo_out": {
+        "n": 5606,
+        "r2": 0.8783908558732239,
+        "mae": 6.067038868304452,
+        "rmse": 7.684160024785867,
+        "p95_abs_error": 15.120703747173186
+      },
+      "source_validation_note": "These metrics describe original affine coordinates before relative motor-zero alignment."
+    },
+    "28": {
+      "role": "abduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -2.148852040698864,
+            -0.7555797182544404,
+            0.1375418966114658,
+            0.30823654283247837
+          ]
+        },
+        "quadratic": {
+          "degree": 2,
+          "effective_degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -2.148852040698864,
+            -0.7555797182544404,
+            0.1375418966114658,
+            0.30823654283247837,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_affine_coefficients": [
+        -10.523539004031818,
+        -2.148852040698864,
+        -0.7555797182544404,
+        0.1375418966114658,
+        0.30823654283247837
+      ],
+      "source_affine_descriptive_fit": {
+        "n": 5606,
+        "r2": 0.9201484718704358,
+        "mae": 6.060612722573157,
+        "rmse": 7.8003625000178065,
+        "p95_abs_error": 15.252182743083763
+      },
+      "source_affine_leave_one_combo_out": {
+        "n": 5606,
+        "r2": 0.8980663699824887,
+        "mae": 7.00659336897499,
+        "rmse": 8.813165285539426,
+        "p95_abs_error": 16.962931704659237
+      },
+      "source_validation_note": "These metrics describe original affine coordinates before relative motor-zero alignment."
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Start left little/ring control with manual relative angles or a Manus glove."""
+"""Start left finger control with relative angles or a Manus glove."""
 from pathlib import Path
 import shutil
 import signal
@@ -25,15 +25,18 @@ def _launch_setup(context):
     input_script = scripts/'joint_angle_terminal_input.py'
     glove_script = scripts/'minimal_example_dual_stream_commented.py'
     finger = value('finger')
-    finger_label = {'little':'小指','ring':'无名指','both':'无名指和小指'}[finger]
+    finger_label = {'little':'小指','ring':'无名指','middle':'中指','index':'食指','thumb':'拇指',
+                    'both':'无名指和小指','three':'中指、无名指和小指','four':'食指、中指、无名指和小指',
+                    'five':'拇指、食指、中指、无名指和小指'}[finger]
     mode = {'1':'manual','2':'manus','manual':'manual','manus':'manus'}[value('input_mode')]
     joint_topic = (value('joint_angle_topic').strip() or f'/left_{finger}_target_q') if mode=='manual' else ''
     if mode=='manus' and not _enabled(value('relative')):
         raise ValueError('Manus模式使用相对角度，请保持relative:=true')
     start_glove = mode=='manus' and _enabled(value('start_glove_node'))
     input_enabled = mode=='manual' and _enabled(value('start_angle_input_terminal'))
-    if finger=='both' and input_enabled:
-        raise ValueError('双指模式请用input_mode:=2；手动8角话题输入需start_angle_input_terminal:=false')
+    if finger in ('both','three','four','five') and input_enabled:
+        count = {'both':8,'three':12,'four':16,'five':20}[finger]
+        raise ValueError(f'多指模式请用input_mode:=2；手动{count}角话题输入需start_angle_input_terminal:=false')
     for path in [controller_script,*([input_script] if input_enabled else []),
                  *([glove_script] if start_glove else [])]:
         if not path.is_file():
@@ -92,14 +95,14 @@ def _launch_setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('finger',default_value='little',choices=['little','ring','both'],
-                              description='little/ring: one finger; both: ring+little with one controller and driver'),
+        DeclareLaunchArgument('finger',default_value='little',choices=['little','ring','middle','index','thumb','both','three','four','five'],
+                              description='Single finger or both:ring+little / three:middle+ring+little / four:non-thumb / five:all fingers'),
         DeclareLaunchArgument('input_mode',default_value='1',choices=['1','2','manual','manus'],
                               description='1/manual: typed relative q; 2/manus: live left Manus relative changes'),
         DeclareLaunchArgument('relative',default_value='true',choices=['true','false'],
                               description='Input q is relative to the fixed collection reference'),
         DeclareLaunchArgument('model',default_value='linear',choices=['linear','quadratic'],
-                              description='Flexion model; ring side motors always use four-q linear compensation'),
+                              description='Thumb always uses M4/M7 linear, M6/M8/M14/M27 quadratic with squares and cross terms; other fingers keep their model policy'),
         DeclareLaunchArgument('start_driver_node',default_value='true',choices=['true','false']),
         DeclareLaunchArgument('start_angle_input_terminal',default_value='true',choices=['true','false']),
         DeclareLaunchArgument('joint_angle_topic',default_value='',
@@ -111,7 +114,7 @@ def generate_launch_description():
         DeclareLaunchArgument('manus_zero_seconds',default_value='1.0'),
         DeclareLaunchArgument('manus_timeout',default_value='0.5'),
         DeclareLaunchArgument('current',default_value='',
-                              description='Empty: ring 0 A, little -0.08 A; set explicitly to override'),
+                              description='Empty: thumb/index/middle/ring 0 A, little -0.08 A; set explicitly to override'),
         DeclareLaunchArgument('publish_hz',default_value='50.0'),
         OpaqueFunction(function=_launch_setup),
     ])

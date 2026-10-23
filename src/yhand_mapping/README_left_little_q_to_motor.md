@@ -1,6 +1,34 @@
-# 左手小指/无名指：四个q计算四台电机位置
+# 左手五指：四个q计算单指电机位置
+
+新增`--finger thumb`：M4长屈、M7长伸固定使用四q一次模型；M6短伸、M8内收、M27外展、M14对掌固定使用包含平方项和交叉项的四q完整二次模型。两种`--model`选项对拇指均选择这套混合关系，其他手指继续原有选项。
+
+```bash
+python3 src/yhand_mapping/scripts/left_little_q_to_motor.py --finger thumb --q 0 0 0 0
+```
+
+Python使用`FingerMapper(finger='thumb').predict([0,0,0,0])`，六路返回0。模型文件为`config/left_thumb_q_to_motor_models.json`，已按用户要求恢复扩展前的完整备份，来自8149个正式full采样点。参考角恢复为采集启动帧`[8.491,38.262,26.028,-26.219]°`，自由截距拟合后展开为`f(q_reference+Δq)-f(q_reference)`。`scripts/fit_left_thumb_q_to_motor.py`保存可复算流程，系数文件保留标准化系数与验证指标。该参考不是精确电机零位标定。
+
+纯映射和遥操入口均恢复原输入幅度与完整多项式。撤回此次新零位约束重拟合、CMC 1.15倍增益、框外切线延伸和新增拇指输出窗口，保留既有一次／二次混合模型及五指遥操。恢复后需要重启原控制入口。
+
+实机入口新增`finger:=thumb`单拇指和`finger:=five`五指统一遥操，见[遥操说明](README_left_little_q_to_motor_test.md)。
 
 脚本：`scripts/left_little_q_to_motor.py`。计算位置并打印结果，不发布电机命令。只依赖Python标准库，无需启动ROS。
+
+使用`--finger index`计算食指M25伸肌、M3浅屈、M15深屈、M1内收、M28外展，五路全部使用四个Δq的一次模型。配置为`config/left_index_q_to_motor_models.json`，来源为已分析的5606个正式采样点。采用增量关系`Δm=BΔq`，相对q全0时五路输出0；linear/quadratic两个选项在食指中均为同一套一次关系。
+
+```bash
+python3 src/yhand_mapping/scripts/left_little_q_to_motor.py --finger index --q -5 10 20 5
+```
+
+Python接口为`FingerMapper(finger='index').predict([-5,10,20,5])`。训练启动参考不是精确电机零位q，源模型的带截距验证误差不能当作增量控制误差。[实机测试说明](README_left_little_q_to_motor_test.md)包含食指单独控制及`finger:=four`四指统一控制的指令。
+
+使用`--finger middle`计算中指五台电机：M23伸肌、M16浅屈、M2深屈、M9内收、M24外展，均使用四个Δq的一次关系。系数来自20261016批次5889个正式xy点，配置位于`config/left_middle_q_to_motor_models.json`。
+
+```bash
+python3 src/yhand_mapping/scripts/left_little_q_to_motor.py --finger middle --q -5 10 20 5
+```
+
+Python接口：`FingerMapper(finger='middle').predict([-5,10,20,5])`。中指使用增量输出`Δm=BΔq`，相对四q全0时五路输出全0；两种model选项在中指中均使用一次关系。训练启动参考不是精确电机零位，原坐标带截距验证指标仅保留为来源信息。中指控制入口、系数及不添加电机限位的配置见[实机测试说明](README_left_little_q_to_motor_test.md)。
 
 默认选择小指。添加`--finger ring`使用无名指，自动加载`config/left_ring_q_to_motor_models.json`，输出M10伸肌、M17屈肌、M22内收、M21外展。无名指四台电机均使用四个Δq：伸屈保留原线性/二次模型，侧摆在两种模型选项下均使用新批次的四q一次补偿。机器人参考q为`[-2,-6,0,-12]°`，Manus角度取`[20:24]`。
 
