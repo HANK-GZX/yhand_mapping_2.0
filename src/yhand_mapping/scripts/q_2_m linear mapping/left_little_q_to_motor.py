@@ -19,7 +19,7 @@ FINGER_SPECS = {
     'index': {'label':'食指','motor_inputs':{25:[0,1,2,3],3:[0,1,2,3],15:[0,1,2,3],1:[0,1,2,3],28:[0,1,2,3]},
               'glove_slice':(12,16),'motor_roles':['伸肌','浅屈肌','深屈肌','内收','外展']},
 }
-DEFAULT_MODEL_PATHS = {finger:Path(__file__).resolve().parents[1]/f'config/left_{finger}_q_to_motor_models.json'
+DEFAULT_MODEL_PATHS = {finger:Path(__file__).resolve().parents[2]/f'config/left_{finger}_q_to_motor_models.json'
                        for finger in FINGER_SPECS}
 DEFAULT_MODEL_PATH = DEFAULT_MODEL_PATHS['little']
 MOTOR_INPUTS = FINGER_SPECS['little']['motor_inputs']

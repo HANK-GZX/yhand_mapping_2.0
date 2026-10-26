@@ -14,7 +14,10 @@ import sys
 
 import numpy as np
 
-PACKAGE = Path(__file__).resolve().parents[1]
+SCRIPTS = Path(__file__).resolve().parents[1]
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+PACKAGE = SCRIPTS.parent
 DEFAULT_COLLECTION = PACKAGE / 'scripts/motor_test_logs/data_collection/20261019_170304_left_collection'
 IDS = [4, 6, 7, 8, 14, 27]
 ROLES = ['flex_long', 'ext_short', 'ext_long', 'adduction', 'opposition', 'abduction']

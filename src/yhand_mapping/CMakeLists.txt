@@ -99,6 +99,18 @@ if(BUILD_TESTING)
     TIMEOUT 30
     ENV "PYTHONDONTWRITEBYTECODE=1"
   )
+  ament_add_pytest_test(left_thumb_motor_to_q_estimator tests/test_left_thumb_motor_to_q_estimator.py
+    TIMEOUT 30
+    ENV "PYTHONDONTWRITEBYTECODE=1"
+  )
+  ament_add_pytest_test(left_hand_motor_to_q_estimator tests/test_left_hand_motor_to_q_estimator.py
+    TIMEOUT 30
+    ENV "PYTHONDONTWRITEBYTECODE=1"
+  )
+  ament_add_pytest_test(motor_to_q_logging tests/test_motor_to_q_logging.py
+    TIMEOUT 30
+    ENV "PYTHONDONTWRITEBYTECODE=1" "MPLCONFIGDIR=/tmp/yhand_inverse_logging_tests"
+  )
 endif()
 
 ament_package()

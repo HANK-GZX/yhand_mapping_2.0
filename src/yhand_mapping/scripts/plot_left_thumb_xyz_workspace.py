@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/yhand_thumb_xyz_mpl')
 import matplotlib
@@ -21,6 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+sys.path.insert(0, str(Path(__file__).resolve().parent/'q_2_m linear mapping'))
 from left_little_q_to_motor import FingerMapper
 from replace_right_non_thumb_q_from_skeleton import read_xlsx_first_row
 

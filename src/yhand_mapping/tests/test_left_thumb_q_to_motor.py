@@ -10,6 +10,7 @@ import numpy as np
 
 PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE/'scripts'))
+sys.path.insert(0, str(PACKAGE/'scripts/q_2_m linear mapping'))
 import fit_left_thumb_q_to_motor as fitting
 import left_little_q_to_motor_test as control
 
@@ -136,7 +137,7 @@ class FiveFingerTests(unittest.TestCase):
 
     def test_thumb_and_five_cli_run_without_ros_and_report_actual_mixed_models(self):
         for finger, size, motors in [('thumb', 4, 6), ('five', 20, 24)]:
-            command = [sys.executable, str(PACKAGE/'scripts/left_little_q_to_motor_test.py'),
+            command = [sys.executable, str(PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor_test.py'),
                        '--finger', finger, '--dry-run', '--q', *(['0']*size)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)

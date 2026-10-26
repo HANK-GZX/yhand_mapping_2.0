@@ -1,4 +1,4 @@
-"""Start left finger control with relative angles or a Manus glove."""
+"""Start left-hand single- or multi-finger q-to-motor control with manual/Manus input."""
 from pathlib import Path
 import shutil
 import signal
@@ -21,7 +21,7 @@ def _enabled(value):
 def _launch_setup(context):
     value = lambda name:LaunchConfiguration(name).perform(context)
     scripts = Path(__file__).resolve().parents[1]/'scripts'
-    controller_script = scripts/'left_little_q_to_motor_test.py'
+    controller_script = scripts/'q_2_m linear mapping/left_little_q_to_motor_test.py'
     input_script = scripts/'joint_angle_terminal_input.py'
     glove_script = scripts/'minimal_example_dual_stream_commented.py'
     finger = value('finger')

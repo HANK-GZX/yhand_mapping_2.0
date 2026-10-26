@@ -19,7 +19,8 @@ import time
 
 from left_little_q_to_motor import FINGER_SPECS, FingerMapper, LittleFingerMapper, finite_values
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+# Shared defaults and motor logs remain in the top-level scripts directory.
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = SCRIPT_DIR.parent
 MOTOR_IDS = (11, 13, 18, 20)
 MOTOR_COUNT = 28
@@ -205,6 +206,27 @@ def prepare_target(mapper, values, relative=True, model='linear'):
             'release_currents_A':dict(FINGER_RELEASE_CURRENTS_A[mapper.finger])}
 
 
+def q_command_snapshot(mapper, matrix, target, *, control_state, sequence,
+                       input_mode, operator_zero=None, emitted_unix_sec=None):
+    """Telemetry only: requested q and the motor positions actually published.
+
+    q_cmd is the request before motor clipping, not a robot angle measurement.
+    """
+    active = target is not None and any(matrix[mid-1][3] or matrix[mid-1][4]
+                                       for mid in mapper.motor_ids)
+    return {'schema_version':1, 'hand':'left', 'finger':mapper.finger,
+            'fingers':list(getattr(mapper,'fingers',(mapper.finger,))),
+            'sequence':sequence, 'emitted_unix_sec':time.time() if emitted_unix_sec is None else emitted_unix_sec,
+            'control_state':control_state, 'input_mode':input_mode, 'active':active,
+            'q_reference_deg':list(mapper.q_reference),
+            'operator_zero_q_deg':list(operator_zero) if operator_zero is not None else None,
+            'q_cmd_absolute_deg':list(target['q_glove']) if active else None,
+            'q_cmd_relative_deg':list(target['q_relative']) if active else None,
+            'motor_position_command_deg':[row[0] if row[3] or row[4] else None for row in matrix],
+            'clipped_motor_ids':list(target['clipped_motors']) if active else [],
+            'q_cmd_note':'Requested q before motor clipping; not measured robot q.'}
+
+
 def parse_angles(line,size=4):
     return finite_values(re.split(r'[\s,，;；]+',line.strip().strip('[]【】()（） ')),size,'q')
 
@@ -346,7 +368,7 @@ def run(args,mapper,defaults,initial_target):
     from rclpy.qos import qos_profile_sensor_data
     from rclpy.signals import SignalHandlerOptions
     from devices_pkg.msg import Motor,YHandMsg
-    from std_msgs.msg import Float64MultiArray
+    from std_msgs.msg import Float64MultiArray,String
 
     stop = threading.Event()
     previous_handlers = {}
@@ -372,6 +394,7 @@ def run(args,mapper,defaults,initial_target):
     log_dir = args.output_dir or SCRIPT_DIR/f'motor_test_logs/{finger}_q_to_motor_test'/datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     log_dir.mkdir(parents=True,exist_ok=True)
     metadata = {'hand':'left','finger':finger,'model':args.model,'relative_input':args.relative,
+                'q_command_state_topic':f'/left_{finger}_q_command_state',
                 'fingers':list(getattr(mapper,'fingers',(finger,))),
                 'finger_q_slices':{f:[4*i,4*i+4] for i,f in enumerate(getattr(mapper,'fingers',(finger,)))},
                 'model_files':getattr(mapper,'model_paths',{finger:str(mapper.model_path)}),
@@ -476,11 +499,27 @@ def run(args,mapper,defaults,initial_target):
             (log_dir/'metadata.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
             print('Manus零位已记录：'+json.dumps(manus.reference)+f'；当前q减此参考后控制左{finger_label}。',flush=True)
 
+    telemetry_sequence = 0
+
+    def publish_q_telemetry(matrix, control_state=None):
+        nonlocal telemetry_sequence
+        telemetry_sequence += 1
+        packet = q_command_snapshot(mapper,matrix,state['target'],
+            control_state=control_state or state['state'],sequence=telemetry_sequence,
+            input_mode=args.input_mode,operator_zero=manus.reference)
+        try:
+            telemetry_publisher.publish(String(data=json.dumps(packet,allow_nan=False)))
+        except Exception as exc:
+            if 'q_command_telemetry_failure' not in metadata:
+                print(f'q_cmd遥测失败，电机控制继续：{exc}',file=sys.stderr,flush=True)
+            metadata['q_command_telemetry_failure'] = str(exc)
+
     def publish(matrix):
         nonlocal sent_any
         was_completed = side_release.completed
         matrix = side_release.apply(matrix,time.monotonic())
         publisher.publish(make_message(matrix,YHandMsg,Motor))
+        publish_q_telemetry(matrix)
         sent_any = True
         state['last_matrix'] = matrix
         if side_release.started_at is not None:
@@ -529,6 +568,7 @@ def run(args,mapper,defaults,initial_target):
         executor = SingleThreadedExecutor(context=context)
         executor.add_node(node)
         publisher = node.create_publisher(YHandMsg,args.cmd_topic,10)
+        telemetry_publisher = node.create_publisher(String,metadata['q_command_state_topic'],10)
         node.create_subscription(YHandMsg,args.feedback_topic,feedback_cb,1)
         if measurement_enabled:
             node.create_subscription(Float64MultiArray,args.glove_topic,glove_cb,1)
@@ -762,6 +802,7 @@ def run(args,mapper,defaults,initial_target):
                 matrix = current_matrix(defaults,finger,release_sway=False)
                 while time.monotonic()<until:
                     publisher.publish(make_message(matrix,YHandMsg,Motor))
+                    publish_q_telemetry(matrix,'stopping')
                     executor.spin_once(timeout_sec=1.0/args.publish_hz)
             except Exception as exc:
                 metadata['stop_failure'] = str(exc)

@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/yhand_thumb_workspace_mpl')
 import matplotlib
@@ -18,6 +19,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent/'q_2_m linear mapping'))
 from left_little_q_to_motor import FingerMapper
 
 PACKAGE = Path(__file__).resolve().parents[1]

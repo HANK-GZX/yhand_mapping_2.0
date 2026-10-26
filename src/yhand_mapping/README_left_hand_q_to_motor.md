@@ -1,10 +1,14 @@
-# 左手五指q→m实机测试
+# 左手 q→m 遥操控制
+
+本页对应 `launch/left_hand_q_to_motor_launch.py`，支持单指及多指遥操。模型计算与 Python 接口见[左手 q→m 模型说明](README_left_hand_q_to_motor_models.md)。
+
+遥操入口现在同步发布只读q_cmd遥测 `/left_<finger>_q_command_state`，供[五指状态估计日志](README_left_hand_motor_to_q_estimator.md)记录控制器真正采用的目标。遥测包含绝对／相对目标、参考角、位控状态与实际电机位置命令；不改变q→m系数或原控制帧。已有进程需要重启才能发布新增话题。
 
 拇指已接入同一入口：`finger:=thumb`单独控制拇指六路，`finger:=five`同时控制五指24路。五指Manus遥操：
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=five input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=five input_mode:=2
 ```
 
 已按用户要求恢复扩展前的拇指模型与控制行为：撤回新零位约束重拟合、CMC幅度补偿、切线外推和新增拇指输出窗口。保留单拇指和五指统一遥操。模型文件更新后，需要重启控制入口才能加载恢复后的系数。
@@ -12,7 +16,7 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=five inp
 单拇指Manus遥操：
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=thumb input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=thumb input_mode:=2
 ```
 
 拇指固定采用以下混合模型，无需设置`model:=quadratic`：
@@ -41,19 +45,19 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=thumb in
 不连接硬件的拇指目标预览：
 
 ```bash
-python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py \
+python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" \
   --finger thumb --dry-run --q 0 0 0 0
 ```
 
-离线复算使用`scripts/fit_left_thumb_q_to_motor.py`，默认参考为原采集启动帧，使用自由截距拟合后做增量展开。默认读取校验过的本批结果缓存；`--refresh-cache`重读原始Excel；`--q-reference Q0 Q1 Q2 Q3`修改多项式展开参考，建议用`--output /tmp/left_thumb_models.json`先检查。拟合脚本不连接设备。首次安装或脚本清单变化后运行`colcon build --packages-select yhand_mapping --symlink-install`。
+离线复算使用`scripts/q_2_m linear mapping/fit_left_thumb_q_to_motor.py`，默认参考为原采集启动帧，使用自由截距拟合后做增量展开。默认读取校验过的本批结果缓存；`--refresh-cache`重读原始Excel；`--q-reference Q0 Q1 Q2 Q3`修改多项式展开参考，建议用`--output /tmp/left_thumb_models.json`先检查。拟合脚本不连接设备。首次安装或脚本清单变化后运行`colcon build --packages-select yhand_mapping --symlink-install`。
 
-入口：`scripts/left_little_q_to_motor_test.py`。通过现有`devices_pkg/Y_Hand_Node`调用官方SDK，同一个脚本和launch支持选择食指、中指、无名指或小指。每次可选择单指，或以`finger:=both`同时控制无名指和小指、`finger:=three`同时控制中指/无名指/小指、`finger:=four`同时控制四指。食指/中指单指模式其余23路、小指/无名指单指模式其余24路、双指模式其余20路、三指模式其余15路、四指模式其余10路保持默认张紧电流。
+入口：`scripts/q_2_m linear mapping/left_little_q_to_motor_test.py`。通过现有`devices_pkg/Y_Hand_Node`调用官方SDK，同一个脚本和launch支持选择拇指、食指、中指、无名指或小指。每次可选择单指，或以`finger:=both`同时控制无名指和小指、`finger:=three`同时控制中指/无名指/小指、`finger:=four`同时控制四指、`finger:=five`同时控制五指。拇指单指模式其余22路、食指/中指单指模式其余23路、小指/无名指单指模式其余24路、双指模式其余20路、三指模式其余15路、四指模式其余10路、五指模式腕部4路保持默认张紧电流。
 
 四指同时Manus遥操：
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=four input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=four input_mode:=2
 ```
 
 先退出已有控制。四指模式由一个控制节点、一个SDK驱动、一个Manus节点统一发送18台位控电机，名义频率50Hz；其余拇指6路和腕部4路默认张紧。各指沿用自己的模型、增益、电流与限位：食指/中指不新增位置限位、固定前馈0A；无名指保留原限位和侧摆方向偏置；小指保留原限位及−0.08A前馈。中指M2仍为已调整的300/50。
@@ -64,7 +68,7 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=four inp
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=three input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=three input_mode:=2
 ```
 
 先退出原来的单指或双指控制。三指模式只启动一个控制节点、一个SDK驱动和一个Manus发布节点；50Hz将13台位控电机合并进同一个28路消息。中指五路继续不添加电机限位、前馈0A；无名指继续现有限位及侧摆±0.05A方向偏置，小指继续现有限位及−0.08A前馈。其余15路默认张紧。`current`留空时分别采用上述默认，显式设置时统一覆盖固定前馈，无名指侧摆仍由方向偏置覆盖。
@@ -83,13 +87,13 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=three in
 食指Manus遥操：
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=index input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=index input_mode:=2
 ```
 
 食指手动相对四q输入：
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=index input_mode:=1
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=index input_mode:=1
 ```
 
 食指五路均使用四q一次模型，来自`data_collection/left_hand/index`的5606个正式xy点，包含3299个运动阶段超时点。使用分析得到的带截距拟合斜率计算增量`Δm=f(q_neutral+Δq)−f(q_neutral)=BΔq`，Δq全0时五路电机目标均0：
@@ -110,11 +114,11 @@ M28 = -2.14885 Δq0 -0.75558 Δq1 +0.13754 Δq2 +0.30824 Δq3
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=middle input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=middle input_mode:=2
 ```
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=middle input_mode:=1
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=middle input_mode:=1
 ```
 
 中指五台电机均使用四个相对Δq的一次模型，系数取自`20261016_161639_left_collection`的5889个正式xy点，包含4085个运动超时点。控制采用增量关系`Δm=f(q_neutral+Δq)−f(q_neutral)=BΔq`，以当前约定的电机零位0作为目标参考：
@@ -139,7 +143,7 @@ M24 = -2.23981 Δq0 -0.23499 Δq1 +0.04494 Δq2 +0.01315 Δq3
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=both input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=both input_mode:=2
 ```
 
 先结束原来的单指遥操，再运行这条指令。双指模式只有一个控制节点和一个SDK驱动，将两指8台电机合并到同一28路指令中；不能分别启动两个单指控制进程共用指令话题，否则它们的完整指令帧会互相覆盖，发布者检查也会拒绝运行。
@@ -167,13 +171,13 @@ M21 = +1.36390 Δq0 -0.34749 Δq1 +0.04464 Δq2 -0.00860 Δq3
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=ring input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=ring input_mode:=2
 ```
 
 无名指手动输入：
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py finger:=ring input_mode:=1
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=ring input_mode:=1
 ```
 
 小指使用`finger:=little`或省略此参数。两种手指的直接Python入口均支持`--finger`。
@@ -190,7 +194,7 @@ M18/M20仅使用q0，M11/M13使用全部四q。默认线性模型；`--model qua
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py input_mode:=1
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py input_mode:=1
 ```
 
 模式1（默认，`manual`也可）会自动启动SDK控制程序，并打开四个q的输入终端；默认输入相对角度，默认线性模型。输入`q`退出窗口会关闭整个测试，启动launch的终端Ctrl+C也会先停止小指再关闭SDK。输入窗口支持`zero`发送四个零角度。
@@ -199,7 +203,7 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py input_mode:=1
 
 ```bash
 source install/setup.bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py input_mode:=2
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py input_mode:=2
 ```
 
 先完成机器手的预紧归零，让电机0对应约定的机器人零位姿态。启动后将操作员左手套保持在希望作为零位的姿态，SDK反馈就绪后连续采样1秒均值作为`q_manus_zero`，终端提示零位已记录后再运动：
@@ -214,7 +218,7 @@ ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py input_mode:=2
 Manus模式复用`wrist_five_finger_hybrid_fusion_right_launch.py`中的`minimal_example_dual_stream_commented.py`双流发布节点，默认自动启动。Windows端Manus SDK需保持运行；如果ROS手套节点已经启动，使用：
 
 ```bash
-ros2 launch yhand_mapping left_little_q_to_motor_test_launch.py \
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
   input_mode:=2 start_glove_node:=false
 ```
 
@@ -248,7 +252,7 @@ source install/setup.bash
 原来的直接Python交互方式仍可使用，支持`stop`、`status`：
 
 ```bash
-python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py --relative
+python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" --relative
 ```
 
 默认自动启动左手SDK驱动，连接信息读取`config/left_hand_device_config.json`。脚本先发送完整28路纯电流帧以获取反馈；小指四路为0电流，其他24路为默认张紧电流。SDK收到指令才返回反馈，因此启动不是被动等待。
@@ -332,7 +336,7 @@ launch、直接Python控制和映射脚本均默认输入相对角度，无需�
 
 ```bash
 source install/setup.bash
-python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py \
+python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" \
   --relative --no-start-driver
 ```
 
@@ -344,14 +348,14 @@ python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py \
 
 ```bash
 source install/setup.bash
-python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py \
+python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" \
   --relative --q 0 10 20 5 --hold-seconds 5
 ```
 
 只预览位置和完整MIT参数，不加载ROS或启动SDK：
 
 ```bash
-python3 src/yhand_mapping/scripts/left_little_q_to_motor_test.py \
+python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" \
   --dry-run --relative --q 0 10 20 5
 ```
 

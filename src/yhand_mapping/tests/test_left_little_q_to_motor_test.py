@@ -14,8 +14,9 @@ import unittest
 from unittest.mock import patch
 
 PACKAGE = Path(__file__).resolve().parents[1]
-SCRIPT = PACKAGE/'scripts/left_little_q_to_motor_test.py'
+SCRIPT = PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor_test.py'
 sys.path.insert(0,str(PACKAGE/'scripts'))
+sys.path.insert(0,str(PACKAGE/'scripts/q_2_m linear mapping'))
 spec = importlib.util.spec_from_file_location('little_test_control',SCRIPT)
 control = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(control)
@@ -239,7 +240,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(self.mapper.predict([0,0,0,0]),data['motor_positions'])
         self.assertEqual(control.prepare_target(self.mapper,[0,0,0,0])['positions'],
                          {mid:0.0 for mid in control.MOTOR_IDS})
-        inference = subprocess.run([sys.executable,str(PACKAGE/'scripts/left_little_q_to_motor.py'),
+        inference = subprocess.run([sys.executable,str(PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor.py'),
                                     '--q','0','0','0','0','--json'],
                                    text=True,capture_output=True,timeout=10)
         self.assertEqual(inference.returncode,0,inference.stderr)
@@ -527,7 +528,7 @@ class MiddlePlanningTests(unittest.TestCase):
         for mid in self.mapper.motor_ids:
             self.assertEqual(data['mit_matrix'][mid-1][0],data['motor_predictions'][f'M{mid}'])
             self.assertEqual(data['mit_matrix'][mid-1][2],0)
-        pure = subprocess.run([sys.executable,str(PACKAGE/'scripts/left_little_q_to_motor.py'),
+        pure = subprocess.run([sys.executable,str(PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor.py'),
                                '--finger','middle','--json','--q','1000','1000','1000','1000'],
                               text=True,capture_output=True,timeout=10)
         self.assertEqual(pure.returncode,0,pure.stderr)
@@ -593,7 +594,7 @@ class IndexPlanningTests(unittest.TestCase):
                     self.assertEqual(stop[mid-1],frame[mid-1])
 
     def test_both_cli_entry_points_load_index_without_ros(self):
-        for script,options in [(SCRIPT,['--dry-run']),(PACKAGE/'scripts/left_little_q_to_motor.py',['--json'])]:
+        for script,options in [(SCRIPT,['--dry-run']),(PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor.py',['--json'])]:
             result = subprocess.run([sys.executable,str(script),'--finger','index',*options,'--q','-5','10','20','5'],text=True,capture_output=True,timeout=10)
             self.assertEqual(result.returncode,0,result.stderr)
             obj = json.loads(result.stdout)
@@ -806,7 +807,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,RegisterEventHandler,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         launch_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch_module)
         context = LaunchContext()
@@ -833,7 +834,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         launch_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch_module)
         context = LaunchContext()
@@ -853,7 +854,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('little_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         launch_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch_module)
         context = LaunchContext()
@@ -884,7 +885,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('ring_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('ring_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         context = LaunchContext()
@@ -913,7 +914,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec=importlib.util.spec_from_file_location('both_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec=importlib.util.spec_from_file_location('both_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         context=LaunchContext()
         context.launch_configurations.update(finger='both',input_mode='2',relative='true',model='linear',
@@ -935,7 +936,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('middle_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('middle_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         context = LaunchContext()
         context.launch_configurations.update(finger='middle',input_mode='1',relative='true',model='linear',
@@ -969,7 +970,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec = importlib.util.spec_from_file_location('three_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec = importlib.util.spec_from_file_location('three_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         context = LaunchContext()
         context.launch_configurations.update(finger='three',input_mode='2',relative='true',model='linear',
@@ -998,7 +999,7 @@ class LaunchWiringTests(unittest.TestCase):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,TimerAction
         from launch.utilities import perform_substitutions
-        spec=importlib.util.spec_from_file_location('index_four_launch',PACKAGE/'launch/left_little_q_to_motor_test_launch.py')
+        spec=importlib.util.spec_from_file_location('index_four_launch',PACKAGE/'launch/left_hand_q_to_motor_launch.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         for finger in ['index','four','thumb','five']:
             ctx=LaunchContext()

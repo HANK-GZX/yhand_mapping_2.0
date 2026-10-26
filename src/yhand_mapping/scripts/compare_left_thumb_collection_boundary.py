@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/yhand_thumb_boundary_mpl')
 import matplotlib
@@ -19,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
+sys.path.insert(0, str(Path(__file__).resolve().parent/'q_2_m linear mapping'))
 from left_little_q_to_motor import FingerMapper
 from left_little_q_to_motor_test import prepare_target
 
