@@ -25,6 +25,9 @@ def _launch_setup(context):
     input_script = scripts/'joint_angle_terminal_input.py'
     glove_script = scripts/'minimal_example_dual_stream_commented.py'
     finger = value('finger')
+    model = value('model')
+    if model not in ('linear','mlp'):
+        raise ValueError('model只支持linear或mlp')
     finger_label = {'little':'小指','ring':'无名指','middle':'中指','index':'食指','thumb':'拇指',
                     'both':'无名指和小指','three':'中指、无名指和小指','four':'食指、中指、无名指和小指',
                     'five':'拇指、食指、中指、无名指和小指'}[finger]
@@ -48,6 +51,14 @@ def _launch_setup(context):
                '--finger',finger,
                '--input-mode',mode,'--model',value('model'),
                '--publish-hz',value('publish_hz')]
+    mlp_dir = LaunchConfiguration('mlp_model_dir', default='').perform(context).strip()
+    if mlp_dir:
+        command += ['--mlp-model-dir', mlp_dir]
+    combo_path = LaunchConfiguration('thumb_combo_calibration', default='').perform(context).strip()
+    if combo_path:
+        if finger not in ('thumb', 'five'):
+            raise ValueError('thumb_combo_calibration仅适用于thumb/five')
+        command += ['--thumb-combo-calibration', combo_path]
     if value('current').strip():
         command += ['--current',value('current')]
     if mode=='manual':
@@ -101,8 +112,12 @@ def generate_launch_description():
                               description='1/manual: typed relative q; 2/manus: live left Manus relative changes'),
         DeclareLaunchArgument('relative',default_value='true',choices=['true','false'],
                               description='Input q is relative to the fixed collection reference'),
-        DeclareLaunchArgument('model',default_value='linear',choices=['linear','quadratic'],
-                              description='Thumb always uses M4/M7 linear, M6/M8/M14/M27 quadratic with squares and cross terms; other fingers keep their model policy'),
+        DeclareLaunchArgument('model',default_value='linear',choices=['linear','mlp'],
+                              description='linear: existing calibration policy; mlp: trained neural networks'),
+        DeclareLaunchArgument('mlp_model_dir',default_value='',
+                              description='Optional MLP JSON directory; defaults to config/q_to_motor_mlp'),
+        DeclareLaunchArgument('thumb_combo_calibration',default_value='',
+                              description='Optional measured thumb combo path JSON; thumb/five only; empty keeps existing control'),
         DeclareLaunchArgument('start_driver_node',default_value='true',choices=['true','false']),
         DeclareLaunchArgument('start_angle_input_terminal',default_value='true',choices=['true','false']),
         DeclareLaunchArgument('joint_angle_topic',default_value='',

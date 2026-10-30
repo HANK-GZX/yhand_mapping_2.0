@@ -2,6 +2,17 @@
 
 本页对应 `launch/left_hand_q_to_motor_launch.py`，支持单指及多指遥操。模型计算与 Python 接口见[左手 q→m 模型说明](README_left_hand_q_to_motor_models.md)。
 
+当前统一入口只提供 `linear` 与 `mlp` 两种模式。
+
+五指MLP使用每指四个Δq作为输入。当前网络结构、训练数据、输入权重、零位处理、侧摆2°规则、验证结果及历史修改，统一见[五指MLP README](<scripts/q_2_m MLP mapping/README.md>)。
+
+```bash
+ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=five input_mode:=2 model:=mlp
+```
+
+单指和四指等组合沿用下文的`finger`参数。`mlp_model_dir:=/完整路径/模型目录`可指定另一套权重；更新权重后需重启进程。电流、KP/KD、限位和断流停止策略由同一控制入口执行。
+
+下文拇指既有一次／二次混合标定属于`linear`模式的内部策略。
 遥操入口现在同步发布只读q_cmd遥测 `/left_<finger>_q_command_state`，供[五指状态估计日志](README_left_hand_motor_to_q_estimator.md)记录控制器真正采用的目标。遥测包含绝对／相对目标、参考角、位控状态与实际电机位置命令；不改变q→m系数或原控制帧。已有进程需要重启才能发布新增话题。
 
 拇指已接入同一入口：`finger:=thumb`单独控制拇指六路，`finger:=five`同时控制五指24路。五指Manus遥操：
@@ -19,7 +30,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=five input_mode
 ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=thumb input_mode:=2
 ```
 
-拇指固定采用以下混合模型，无需设置`model:=quadratic`：
+拇指固定采用以下混合模型，使用`model:=linear`：
 
 | 电机 | 肌肉 | 输入 | 实际模型 |
 |---|---|---|---|
@@ -106,7 +117,7 @@ M1  = +2.06561 Δq0 -0.13520 Δq1 -0.09968 Δq2 -0.21285 Δq3
 M28 = -2.14885 Δq0 -0.75558 Δq1 +0.13754 Δq2 +0.30824 Δq3
 ```
 
-配置为`config/left_index_q_to_motor_models.json`，保留原始截距、分析来源校验值和原坐标验证指标。它们不能直接当作增量模型的实机控制精度。训练参考`[3.627,-6.019,0.028,-2.929]°`只是启动帧，不是本机精确电机零位q；只用于显式absolute输入和日志参考。手动模式默认输入Δq，不再次减参考；Manus采用操作员自己的启动零位，只按变化控制。`model:=quadratic`时食指仍为同一套一次关系，不使用新二次拟合。
+配置为`config/left_index_q_to_motor_models.json`，保留原始截距、分析来源校验值和原坐标验证指标。它们不能直接当作增量模型的实机控制精度。训练参考`[3.627,-6.019,0.028,-2.929]°`只是启动帧，不是本机精确电机零位q；只用于显式absolute输入和日志参考。手动模式默认输入Δq，不再次减参考；Manus采用操作员自己的启动零位，只按变化控制。
 
 食指先采用中指相同的无限位策略：不新增q或电机位置范围检查，保持非有限数、反馈错误和断流检查。五路固定前馈默认0A，默认KP/KD为M25=300/50、M3=200/30、M15=200/30、M1=800/30、M28=800/30，实际从`muscle_adjustment_defaults.py`读取；不为食指添加无名指的侧摆±0.05A偏置。启动等待/停止时食指五路KP/KD/I=0，其他23路默认张紧。默认手动话题为`/left_index_target_q`，日志目录为`scripts/motor_test_logs/index_q_to_motor_test/<时间>/`。
 
@@ -131,7 +142,7 @@ M9  = +2.45499 Δq0 -0.23385 Δq1 -0.05576 Δq2 +0.03790 Δq3
 M24 = -2.23981 Δq0 -0.23499 Δq1 +0.04494 Δq2 +0.01315 Δq3
 ```
 
-这是使用原带截距拟合的斜率计算位置变化，不是强制过原点重新拟合。配置`config/left_middle_q_to_motor_models.json`保存原始截距、原坐标验证指标和来源；原坐标MAE不能直接当成增量控制后的实机误差。`model:=quadratic`在中指模式中也是同一套一次关系，二次项全为0，metadata记录实际有效阶数为1。
+这是使用原带截距拟合的斜率计算位置变化，不是强制过原点重新拟合。配置`config/left_middle_q_to_motor_models.json`保存原始截距、原坐标验证指标和来源；原坐标MAE不能直接当成增量控制后的实机误差。
 
 中指手动输入默认直接接受Δq，不再减训练参考。Manus启动时四个角各自连续稳定1秒、极差≤3°后锁定操作员零位，之后仅用相对变化。Δq全0时五台电机目标均为0，不调用Set_Zero。配置中的`q_reference=[4.396,-8.581,-0.020,0.443]°`只是整批采集启动帧，用于显式`--absolute`转换和日志参考，不是本机精确电机零位标定；Manus不使用它作为操作员零位。
 
@@ -182,11 +193,11 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=ring input_mode
 
 小指使用`finger:=little`或省略此参数。两种手指的直接Python入口均支持`--finger`。
 
-无名指完整系数与分电机来源保存在`config/left_ring_q_to_motor_models.json`；M10/M17来自旧批4307个正式点，M22/M21来自上述新批2170点。四q与q0的离线对比见[四q侧摆分析](scripts/motor_test_logs/data_collection/20261021_171709_left_collection/analysis/ring_distribution/SIDE_FOUR_Q.md)。未执行新的物理标定。
+无名指完整系数与分电机来源保存在`config/left_ring_q_to_motor_models.json`；M10/M17来自旧批4307个正式点，M22/M21来自上述新批2170点。四q与q0的离线对比见[四q侧摆分析](scripts/motor_test_logs/data_collection/ring_data/analysis/ring_distribution/SIDE_FOUR_Q.md)。未执行新的物理标定。
 
 下列未指定`finger`的示例均选择小指。
 
-M18/M20仅使用q0，M11/M13使用全部四q。默认线性模型；`--model quadratic`切换二次模型。输入支持手动相对角度和左手Manus实时相对角度两种模式。
+M18/M20仅使用q0，M11/M13使用全部四q。默认`linear`；`--model mlp`切换神经网络。输入支持手动相对角度和左手Manus实时相对角度两种模式。
 
 ## 启动
 
@@ -240,7 +251,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
 
 launch的`current`默认留空，无名指伸屈默认0A、小指默认−0.08A；显式设置`current:=数值`可覆盖固定前馈。无名指侧摆始终采用下述方向偏置，覆盖固定前馈，不与`current`叠加。实际电流仍包含KP/KD对位置/速度误差产生的控制输出。
 
-可选参数：`model:=quadratic`使用二次模型，手动模式下`relative:=false`输入原始glove角度，`start_driver_node:=false`复用已经启动的SDK。手动模式默认目标q话题是`/left_little_target_q`，与机器人手套实测话题分开。Manus模式始终使用相对变化。
+可选参数：`model:=mlp`使用神经网络，手动模式下`relative:=false`输入原始glove角度，`start_driver_node:=false`复用已经启动的SDK。手动模式默认目标q话题是`/left_little_target_q`，与机器人手套实测话题分开。Manus模式始终使用相对变化。
 
 首次新增launch后需要构建一次：
 
@@ -287,7 +298,7 @@ launch、直接Python控制和映射脚本均默认输入相对角度，无需�
 
 当前系数使用20261020的原始电机feedback标签，并根据用户指定零位重新拟合。零位目标仍通过普通位控下发，此脚本不调用`Set_Zero`。每次预紧归零后应保持相同的物理参考；单纯读数均为0不能验证其余姿态的映射精度。
 
-本次零位约束没有解决侧摆旧数据中的位置分歧。M20仅使用q0时，线性模型五折电机位置MAE约15.08°、二次约13.24°，不能将本次更新视为侧摆精度已改善。完整数据对比见[重拟合报告](scripts/motor_test_logs/data_collection/20261020_165513_left_collection/analysis/little_zero_constrained/ANALYSIS.md)。
+本次零位约束没有解决侧摆旧数据中的位置分歧。M20仅使用q0时，线性模型五折电机位置MAE约15.08°、二次约13.24°，不能将本次更新视为侧摆精度已改善。当前系数和验证指标见[小指配置](config/left_little_q_to_motor_models.json)。
 
 ## 控制参数
 
@@ -297,7 +308,7 @@ launch、直接Python控制和映射脚本均默认输入相对角度，无需�
 | `--current` | 无名指伸屈0；小指−0.08 | 固定位控前馈A；无名指侧摆由±0.05A方向偏置覆盖 |
 | `--feedback-timeout` | 0.5 | SDK反馈最大允许年龄秒 |
 | `--ready-timeout` | 15 | 启动等待有效反馈的超时秒 |
-| `--model` | linear | `linear`或`quadratic`；小指侧摆用q0，无名指侧摆固定四q一次补偿 |
+| `--model` | linear | `linear`或`mlp`；linear保留原标定，mlp使用对应手指神经网络 |
 
 小指四路KP/KD读取`muscle_adjustment_defaults.py`，目标速度字段为0。每次输入四个q后，把按电机位置范围裁剪后的映射结果作为位置目标；50Hz仅用于重复发送当前目标，没有位置插值或额外的30°/秒限速。实际运动响应由电机控制器及KP/KD决定。默认KP/KD为M11=800/50、M13=300/30、M18=800/30、M20=800/30；实际以启动时默认参数文件为准。
 
@@ -322,7 +333,7 @@ launch、直接Python控制和映射脚本均默认输入相对角度，无需�
 | 伸肌 | M11 `[−5,450]` | M10 `[−5,450]` |
 | 屈肌 | M13 `[−400,20]` | M17 `[−400,20]` |
 | 内收 | M18 `[−15,50]` | M22 `[−15,25]` |
-| 外展 | M20 `[−80,30]` | M21 `[−40,10]` |
+| 外展 | M20 `[−80,30]` | M21 `[−40,25]` |
 
 每台位控电机独立裁剪：低于下限发送下限，高于上限发送上限，其余电机继续按最新结果更新。最终SDK位控帧也应用同一裁剪。无名指侧摆与伸屈同时下发位置目标，目标速度字段为0，侧摆KP/KD=800/100，前馈按下述规则切换；启动等待与停止时本指四路均为KP/KD/I=0。配置中的`q_relative_training_bounds`、`motor_position_training_bounds`仅保留为数据描述，不参与控制判断。
 
@@ -383,6 +394,12 @@ Manus模式下，如果`--glove-topic`与操作员输入话题相同，则关闭
 计算每个姿态保持末尾的q均值，与目标q比较；同时检查电机目标误差，区分电机没有跟到目标与映射本身有偏差。超时和失败记录需要保留。
 
 ## 离线验证
+
+拇指可选的“外展绕弧→内收对掌”combo 控制层见
+[标定与使用说明](scripts/thumb_combo_control/README.md)。传入
+`thumb_combo_calibration:=<实测标定JSON绝对路径>` 后，在同一节点内使用姿态关键点补偿
+M4/M14 并协调伸肌释放，四指继续使用所选映射。模板含未标定数值，不能直接上机。
+新日志记录 combo 权重、实际修正、KP/KD 和标定快照；不传参数保留原控制。
 
 ```bash
 source install/setup.bash

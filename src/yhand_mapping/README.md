@@ -3,6 +3,8 @@
 当前电机编号见 [新腕带电机对应表](README_motor_mapping.md)。模型轴顺序按肌肉保留，不能按新编号排序。
 
 本包包含五指与腕部映射、数据采集、标定、回放、预紧业务启动文件，以及对应配置、模型和数据。
+
+五指当前q→m神经网络的结构、训练、遥操和历史修改统一见[MLP README](<scripts/q_2_m MLP mapping/README.md>)。
 设备驱动和 ROS 消息由同工作区的 `devices_pkg` 提供。
 
 ```bash

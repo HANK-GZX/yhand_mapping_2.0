@@ -63,54 +63,7 @@ install(FILES LICENSE ${MAPPING_DOCUMENTS}
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(manus_action_one tests/test_manus_action_one.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(manus_action_three tests/test_manus_action_three.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(manus_action_two tests/test_manus_action_two.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(motor_mapping tests/test_motor_mapping.py
-    TIMEOUT 90
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(workspace_boundary_collect tests/test_workspace_boundary_collect.py
-    TIMEOUT 90
-    ENV "PYTHONDONTWRITEBYTECODE=1" "MPLBACKEND=Agg"
-  )
-  ament_add_pytest_test(data_collection_extensor tests/test_data_collection_extensor.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(pretighten_shutdown tests/test_pretighten_shutdown.py
-    TIMEOUT 90
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(left_little_q_to_motor_test tests/test_left_little_q_to_motor_test.py
-    TIMEOUT 120
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(left_thumb_q_to_motor tests/test_left_thumb_q_to_motor.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(left_thumb_motor_to_q_estimator tests/test_left_thumb_motor_to_q_estimator.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(left_hand_motor_to_q_estimator tests/test_left_hand_motor_to_q_estimator.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1"
-  )
-  ament_add_pytest_test(motor_to_q_logging tests/test_motor_to_q_logging.py
-    TIMEOUT 30
-    ENV "PYTHONDONTWRITEBYTECODE=1" "MPLCONFIGDIR=/tmp/yhand_inverse_logging_tests"
-  )
+  add_subdirectory(tests)
 endif()
 
 ament_package()

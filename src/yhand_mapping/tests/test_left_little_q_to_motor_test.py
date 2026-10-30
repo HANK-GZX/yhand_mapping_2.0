@@ -153,7 +153,7 @@ class PlanningTests(unittest.TestCase):
         reference = [-5.0,-9.0,7.0,-10.0]
         self.assertEqual(list(self.mapper.q_reference),reference)
         self.assertTrue(self.mapper.config['zero_position_constraint'])
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             for angles,relative in [(reference,False),([0,0,0,0],True)]:
                 self.assertEqual(self.mapper.predict(angles,relative=relative,model=model),
                                  {f'M{mid}':0.0 for mid in control.MOTOR_IDS})
@@ -161,7 +161,7 @@ class PlanningTests(unittest.TestCase):
                 self.assertEqual(target['positions'],{mid:0.0 for mid in control.MOTOR_IDS})
 
     def test_raw_relative_and_side_input_contract(self):
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             raw = control.prepare_target(self.mapper,self.mapper.q_reference,False,model)
             delta = control.prepare_target(self.mapper,[0,0,0,0],True,model)
             self.assertEqual(raw,delta)
@@ -196,7 +196,7 @@ class PlanningTests(unittest.TestCase):
                 angles = [0.0]*4
                 angles[j] = value
                 cases.append(angles)
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             for angles in cases:
                 target = control.prepare_target(self.mapper,angles,True,model)
                 self.assertEqual(target['q_relative'],angles)
@@ -317,7 +317,7 @@ class RingPlanningTests(unittest.TestCase):
         self.assertEqual(self.mapper.motor_ids,(10,17,22,21))
         self.assertEqual(self.mapper.q_reference,(-2,-6,0,-12))
         self.assertEqual(control.left_manus_q(list(range(48)),'ring'),[20,21,22,23])
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             zero = self.mapper.predict([0]*4,model=model)
             self.assertEqual(zero,dict.fromkeys(['M10','M17','M22','M21'],0.0))
             self.assertEqual(zero,self.mapper.predict(self.mapper.q_reference,relative=False,model=model))
@@ -334,7 +334,7 @@ class RingPlanningTests(unittest.TestCase):
         slopes={22:[-1.2730498465586373,.6582796919042382,-.07069193848395074,-.08362085406108608],
                 21:[1.3639031607010055,-.347486996429509,.04464212963110632,-.008604078486167075]}
         for angles in [[-4,10,40,15],[0,10,0,0],[0,0,20,0],[0,0,0,10]]:
-            for model in ['linear','quadratic']:
+            for model in ['linear']:
                 prediction = self.mapper.predict(angles,model=model)
                 for mid,coefficients in slopes.items():
                     self.assertAlmostEqual(prediction[f'M{mid}'],sum(a*b for a,b in zip(angles,coefficients)),places=12)
@@ -353,7 +353,7 @@ class RingPlanningTests(unittest.TestCase):
             else:
                 self.assertEqual(matrix[mid-1],[0,0,self.defaults['tor'][mid-1],0,0])
         low = control.position_matrix(self.defaults,{10:-6,17:21,22:-16,21:31},-.08,'ring')
-        self.assertEqual([low[mid-1][0] for mid in expected],[-5,20,-15,10])
+        self.assertEqual([low[mid-1][0] for mid in expected],[-5,20,-15,25])
 
     def test_ring_model_selection_and_cli_dry_run(self):
         with self.assertRaises(ValueError):
@@ -373,7 +373,7 @@ class RingPlanningTests(unittest.TestCase):
             self.assertEqual(data['mit_matrix'][mid-1],[0,0,self.defaults['tor'][mid-1],0,0])
 
     def test_ring_four_position_targets_continue_with_unlimited_joint_input(self):
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             results = []
             for angles in [[20,10,20,5],[-20,20,30,10],[0,0,0,0],[1000]*4,[-1000]*4]:
                 target = control.prepare_target(self.mapper,angles,True,model)
@@ -417,19 +417,19 @@ class RingPlanningTests(unittest.TestCase):
                 control.directional_side_current(0,actual)
 
     def test_side_bias_is_recomputed_from_feedback_after_position_clipping(self):
-        positions={10:100,17:-100,22:-20,21:20}
+        positions={10:100,17:-100,22:-20,21:40}
         first=control.position_matrix(self.defaults,positions,-.03,'ring',
-                                      feedback_positions={22:-30,21:20})
-        # Clipped M22=-15 > -30: release, M21=10 < 20: tighten.
+                                      feedback_positions={22:-30,21:30})
+        # Clipped M22=-15 > -30: release, M21=25 < 30: tighten.
         self.assertEqual(first[21],[ -15,0,.05,800,100])
-        self.assertEqual(first[20],[ 10,0,-.05,800,100])
+        self.assertEqual(first[20],[ 25,0,-.05,800,100])
         # Same target, opposite measured side of it: the bias must reverse.
         second=control.position_matrix(self.defaults,positions,-.03,'ring',
                                        feedback_positions={22:-10,21:5})
         self.assertEqual(second[21][2],-.05)
         self.assertEqual(second[20][2],.05)
         arrived=control.position_matrix(self.defaults,positions,-.03,'ring',
-                                        feedback_positions={22:-15,21:10})
+                                        feedback_positions={22:-15,21:25})
         for mid in [22,21]:self.assertEqual(arrived[mid-1][2],0)
         for matrix in [first,second,arrived]:
             for mid in range(1,29):
@@ -468,7 +468,7 @@ class MiddlePlanningTests(unittest.TestCase):
         self.assertEqual(control.left_manus_q(list(range(48)),'middle'),[16,17,18,19])
         self.assertFalse(self.mapper.config['reference_is_exact_zero_calibration'])
         self.assertEqual(self.mapper.config['training_points'],5889)
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             self.assertEqual(self.mapper.predict([0]*4,model=model),
                              {f'M{mid}':0.0 for mid in self.mapper.motor_ids})
             self.assertEqual(self.mapper.predict(self.mapper.q_reference,relative=False,model=model),
@@ -558,7 +558,7 @@ class IndexPlanningTests(unittest.TestCase):
         self.assertEqual(control.left_manus_q(list(range(48)),'index'),[12,13,14,15])
         self.assertEqual(self.mapper.config['training_points'],5606)
         self.assertFalse(self.mapper.config['reference_is_exact_zero_calibration'])
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             self.assertEqual(self.mapper.predict([0]*4,model=model),dict.fromkeys(['M25','M3','M15','M1','M28'],0))
             self.assertEqual(self.mapper.predict(self.mapper.q_reference,relative=False,model=model),self.mapper.predict([0]*4,model=model))
 
@@ -615,7 +615,7 @@ class BothPlanningTests(unittest.TestCase):
     def test_models_are_independent_and_absolute_coordinates_match(self):
         ring=control.FingerMapper(finger='ring');little=control.FingerMapper(finger='little')
         angles=[-5,10,20,5,2,8,15,4]
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             result=self.mapper.predict(angles,model=model)
             self.assertEqual(result,{**ring.predict(angles[:4],model=model),**little.predict(angles[4:],model=model)})
             raw=[a+b for a,b in zip(angles,self.mapper.q_reference)]
@@ -673,7 +673,7 @@ class ThreePlanningTests(unittest.TestCase):
         self.assertEqual(self.mapper.motor_ids,(23,16,2,9,24,10,17,22,21,11,13,18,20))
         self.assertEqual(control.left_manus_q(list(range(48)),'three'),list(range(16,28)))
         angles = [-5,10,20,5]+[-4,15,30,8]+[2,8,15,4]
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             result = self.mapper.predict(angles,model=model)
             expected = {}
             for i,finger in enumerate(['middle','ring','little']):
@@ -744,7 +744,7 @@ class FourPlanningTests(unittest.TestCase):
         self.assertEqual(self.mapper.motor_ids,(25,3,15,1,28,23,16,2,9,24,10,17,22,21,11,13,18,20))
         self.assertEqual(control.left_manus_q(list(range(48)),'four'),list(range(12,28)))
         q = [-5,10,20,5]+[2,15,25,8]+[-3,10,15,4]+[1,8,12,2]
-        for model in ['linear','quadratic']:
+        for model in ['linear']:
             expected = {}
             for i,f in enumerate(['index','middle','ring','little']):
                 expected.update(control.create_mapper(f).predict(q[i*4:i*4+4],model=model))
@@ -774,7 +774,7 @@ class FourPlanningTests(unittest.TestCase):
             else:self.assertEqual(plan['positions'][mid],plan['predicted_positions'][mid])
             ff = control.directional_side_current(plan['positions'][mid],0) if mid in [22,21] else -.08 if mid in [11,13,18,20] else 0
             self.assertEqual(frame[mid-1][2],ff)
-        self.assertEqual(frame[1][3:],[300,50])  # Preserve the requested middle M2 tuning.
+        self.assertEqual(frame[1][3:],[500,50])  # Preserve the requested middle M2 tuning.
         self.assertEqual(frame[14][3:],[200,30])
 
     def test_cli_and_reference_wait_for_all_sixteen_angles(self):
@@ -838,7 +838,7 @@ class LaunchWiringTests(unittest.TestCase):
         launch_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(launch_module)
         context = LaunchContext()
-        context.launch_configurations.update(finger='little',input_mode='1',relative='false',model='quadratic',start_driver_node='false',
+        context.launch_configurations.update(finger='little',input_mode='1',relative='false',model='linear',start_driver_node='false',
                                              start_angle_input_terminal='false',joint_angle_topic='/little_target',
                                              current='-0.08',publish_hz='50.0')
         actions = launch_module._launch_setup(context)
@@ -847,7 +847,7 @@ class LaunchWiringTests(unittest.TestCase):
         self.assertNotIn('--relative',command)
         self.assertIn('--absolute',command)
         self.assertIn('--no-start-driver',command)
-        self.assertIn('quadratic',command)
+        self.assertIn('linear',command)
         self.assertFalse(any(isinstance(a,TimerAction) for a in actions))
 
     def test_manus_launch_starts_publisher_without_input_terminal(self):
@@ -1029,8 +1029,8 @@ class LaunchWiringTests(unittest.TestCase):
 
 
 class FakeSDKIntegrationTests(unittest.TestCase):
-    def exercise(self,mode='normal',interrupt=False,signum=signal.SIGINT,finger='little'):
-        mapper = control.create_mapper(finger)
+    def exercise(self,mode='normal',interrupt=False,signum=signal.SIGINT,finger='little',model='linear'):
+        mapper = control.create_mapper(finger, model=model)
         motor_ids = mapper.motor_ids
         motor_limits = control.FINGER_MOTOR_POSITION_LIMITS_DEG[finger]
         q_count = len(mapper.q_reference)
@@ -1054,6 +1054,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                        LITTLE_TEST_RAW_TOPIC=topic+'/raw',
                        LITTLE_TEST_MODE=mode,LITTLE_TEST_FINGER=finger,PYTHONDONTWRITEBYTECODE='1')
             command = [sys.executable,str(SCRIPT),'--finger',finger,'--relative','--q',*(['0']*q_count),
+                       '--model',model,
                        '--driver-executable',str(fake),'--cmd-topic',topic+'/cmd','--feedback-topic',topic+'/feedback',
                        '--glove-topic',topic+'/glove','--output-dir',str(root/'output'),
                        '--hold-seconds','30' if interrupt else '1' if mode=='dropout' else '.2',
@@ -1118,7 +1119,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
             else:
                 self.assertTrue(active)
             def expected_positions(angles):
-                planned = control.prepare_target(mapper,angles)
+                planned = control.prepare_target(mapper,angles,model=model)
                 return {f'M{mid}':value for mid,value in planned['positions'].items()}
             predicted = expected_positions([0]*q_count)
             moved = expected_positions(operator_delta)
@@ -1167,11 +1168,16 @@ class FakeSDKIntegrationTests(unittest.TestCase):
             self.assertEqual(metadata['finger'],finger)
             self.assertEqual(metadata['motor_ids'],list(motor_ids))
             self.assertEqual(metadata['position_motor_ids'],list(motor_ids))
-            if finger in ('middle','index'):
+            self.assertEqual(metadata['model'], model)
+            if model == 'mlp':
+                self.assertEqual(set(metadata['model_effective_models'].values()), {'mlp'})
+                self.assertEqual(set(metadata['model_effective_degrees'].values()), {None})
+            if finger in ('middle','index') and model != 'mlp':
                 self.assertEqual(metadata['model_effective_degrees'],dict.fromkeys(map(str,motor_ids),1))
             if finger in ('thumb','five'):
-                self.assertEqual({mid:metadata['model_effective_degrees'][mid] for mid in ['4','6','7','8','14','27']},
-                                 {'4':1,'6':2,'7':1,'8':2,'14':2,'27':2})
+                if model != 'mlp':
+                    self.assertEqual({mid:metadata['model_effective_degrees'][mid] for mid in ['4','6','7','8','14','27']},
+                                     {'4':1,'6':2,'7':1,'8':2,'14':2,'27':2})
                 self.assertTrue(all(mid in metadata['unlimited_position_motor_ids'] for mid in [4,6,7,8,14,27]))
             if finger=='three':
                 self.assertEqual(metadata['unlimited_position_motor_ids'],[23,16,2,9,24])
@@ -1277,6 +1283,15 @@ class FakeSDKIntegrationTests(unittest.TestCase):
 
     def test_five_manus_updates_24_channels_with_one_driver(self):
         self.exercise('manus',finger='five')
+
+    def test_mlp_five_manus_updates24_and_logs_model(self):
+        self.exercise('manus',finger='five',model='mlp')
+
+    def test_mlp_five_feedback_dropout_stops24(self):
+        self.exercise('dropout',finger='five',model='mlp')
+
+    def test_mlp_five_manus_dropout_stops24(self):
+        self.exercise('manus_dropout',finger='five',model='mlp')
 
     def test_five_feedback_dropout_stops_all24_before_driver_exit(self):
         self.exercise('dropout',finger='five')

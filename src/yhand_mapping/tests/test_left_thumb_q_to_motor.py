@@ -102,11 +102,12 @@ class FiveFingerTests(unittest.TestCase):
         self.assertEqual(len(set(mapper.motor_ids)), 24)
         self.assertEqual(set(range(1, 29))-set(mapper.motor_ids), {5, 12, 19, 26})
         q = [1, 3, 5, 2, -5, 10, 20, 5, 2, 15, 25, 8, -3, 10, 15, 4, 1, 8, 12, 2]
-        for option in ['linear', 'quadratic']:
+        for option in ['linear', 'mlp']:
+            selected = control.create_mapper('five',model=option)
             expected = {}
             for i, finger in enumerate(['thumb','index','middle','ring','little']):
-                expected.update(control.create_mapper(finger).predict(q[4*i:4*i+4], model=option))
-            self.assertEqual(mapper.predict(q, model=option), expected)
+                expected.update(control.create_mapper(finger,model=option).predict(q[4*i:4*i+4], model=option))
+            self.assertEqual(selected.predict(q, model=option), expected)
         changed = list(q)
         changed[0] += 3
         for mid in set(mapper.motor_ids)-set(control.create_mapper('thumb').motor_ids):

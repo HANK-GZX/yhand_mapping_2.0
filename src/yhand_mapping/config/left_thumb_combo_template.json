@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "kind": "thumb_combo_path",
+  "hand": "left",
+  "calibration_status": "template",
+  "motor_zero_id": "",
+  "motor_order": [4, 6, 7, 8, 14, 27],
+  "operator_zero_q_deg": [0, 0, 0, 0],
+  "q_metric_weights": [1, 1, 1, 1],
+  "corridor_inner_deg": 5,
+  "corridor_outer_deg": 15,
+  "neutral_blend_deg": 8,
+  "transition_sec": 0.4,
+  "motor_position_limits_deg": {
+    "4": [null, null], "6": [null, null], "7": [null, null],
+    "8": [null, null], "14": [null, null], "27": [null, null]
+  },
+  "max_position_rate_deg_sec": {
+    "4": null, "6": null, "7": null, "8": null, "14": null, "27": null
+  },
+  "max_abs_current_A": {
+    "4": null, "6": null, "7": null, "8": null, "14": null, "27": null
+  },
+  "active_feedforward_A": {
+    "4": 0, "6": 0, "7": 0, "8": 0, "14": 0, "27": 0
+  },
+  "neutral_motor_tolerance_deg": 2,
+  "keyframes": [],
+  "note": "Limits, rates and current bounds require measurement. Build keyframes from accepted taut poses with collect_thumb_combo_calibration.py; this template cannot run motors."
+}

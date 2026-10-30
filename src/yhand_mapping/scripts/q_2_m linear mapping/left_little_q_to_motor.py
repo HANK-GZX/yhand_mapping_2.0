@@ -179,14 +179,19 @@ def main(argv=None):
     coordinates.add_argument('--absolute', dest='relative', action='store_false',
                              help='显式输入原始glove q，程序减去零位')
     parser.set_defaults(relative=True)
-    parser.add_argument('--model', choices=['linear', 'quadratic'], default='linear',
-                        help='默认linear；拇指固定长屈/长伸一次、其余四路二次；其他手指沿用原模型策略')
+    parser.add_argument('--model', choices=['linear', 'mlp'], default='linear',
+                        help='linear使用原标定策略；mlp使用训练的神经网络')
     parser.add_argument('--model-file', type=Path,
                         help='模型系数JSON文件')
     parser.add_argument('--json', action='store_true', help='以JSON输出所选手指电机位置')
     args = parser.parse_args(argv)
     try:
-        mapper = FingerMapper(args.model_file,finger=args.finger)
+        if args.model == 'mlp':
+            sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'q_2_m MLP mapping'))
+            from mlp_q_to_motor import MLPFingerMapper
+            mapper = MLPFingerMapper(args.model_file,finger=args.finger)
+        else:
+            mapper = FingerMapper(args.model_file,finger=args.finger)
         if args.q is None:
             return _interactive(mapper, args)
         _print_positions(mapper.predict(args.q, relative=args.relative, model=args.model), args.json, mapper.motor_roles)
