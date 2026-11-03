@@ -32,6 +32,11 @@ def _launch_setup(context):
                     'both':'无名指和小指','three':'中指、无名指和小指','four':'食指、中指、无名指和小指',
                     'five':'拇指、食指、中指、无名指和小指'}[finger]
     mode = {'1':'manual','2':'manus','manual':'manual','manus':'manus'}[value('input_mode')]
+    coupling_mode = LaunchConfiguration('manual_coupling', default='reject').perform(context)
+    coupling_reference = (LaunchConfiguration('coupling_reference', default='').perform(context).strip()
+                          or str(scripts.parent/'config/manual_joint_coupling.json'))
+    if coupling_mode not in ('off', 'reject'):
+        raise ValueError('manual_coupling必须为off或reject')
     joint_topic = (value('joint_angle_topic').strip() or f'/left_{finger}_target_q') if mode=='manual' else ''
     if mode=='manus' and not _enabled(value('relative')):
         raise ValueError('Manus模式使用相对角度，请保持relative:=true')
@@ -51,6 +56,20 @@ def _launch_setup(context):
                '--finger',finger,
                '--input-mode',mode,'--model',value('model'),
                '--publish-hz',value('publish_hz')]
+    model_file = LaunchConfiguration('model_file', default='').perform(context).strip()
+    thumb_version = LaunchConfiguration('thumb_version', default='default').perform(context).strip()
+    if thumb_version not in ('default', 'v3'):
+        raise ValueError('thumb_version必须为default或v3')
+    if thumb_version == 'v3':
+        if finger not in ('thumb', 'five') or model != 'linear':
+            raise ValueError('thumb_version v3仅适用于thumb/five的linear模式')
+        if model_file:
+            raise ValueError('thumb_version v3不能与model_file同时指定')
+        command += ['--thumb-version', thumb_version]
+    if model_file:
+        if finger in ('both','three','four','five'):
+            raise ValueError('model_file仅用于单指模式；多指模式按各指自动加载模型')
+        command += ['--model-file', model_file]
     mlp_dir = LaunchConfiguration('mlp_model_dir', default='').perform(context).strip()
     if mlp_dir:
         command += ['--mlp-model-dir', mlp_dir]
@@ -62,7 +81,8 @@ def _launch_setup(context):
     if value('current').strip():
         command += ['--current',value('current')]
     if mode=='manual':
-        command += ['--target-topic',joint_topic]
+        command += ['--target-topic',joint_topic,'--manual-coupling',coupling_mode,
+                    '--coupling-reference',coupling_reference]
     else:
         command += ['--manus-topic',value('manus_topic'),'--manus-raw-topic',value('manus_raw_topic'),
                     '--manus-zero-seconds',value('manus_zero_seconds'),
@@ -97,7 +117,9 @@ def _launch_setup(context):
         input_process = ExecuteProcess(
             cmd=[terminal,'--wait','--title',f'left_{finger}_q_input','--',
                  'python3','-u',str(input_script),'--hand','left','--finger',finger,
-                 '--topic',joint_topic,'--burst-count','5'],
+                 '--topic',joint_topic,'--publish-hz',value('publish_hz'),'--burst-count','5',
+                 '--manual-coupling',coupling_mode,'--coupling-reference',coupling_reference,
+                 '--relative',value('relative')],
             name=f'left_{finger}_q_input',output='screen',
             on_exit=Shutdown(reason=f'{finger}-finger angle input terminal closed'))
         actions.append(TimerAction(period=1.0,actions=[input_process]))
@@ -112,8 +134,16 @@ def generate_launch_description():
                               description='1/manual: typed relative q; 2/manus: live left Manus relative changes'),
         DeclareLaunchArgument('relative',default_value='true',choices=['true','false'],
                               description='Input q is relative to the fixed collection reference'),
+        DeclareLaunchArgument('manual_coupling',default_value='reject',choices=['off','reject'],
+                              description='Mode 1: reject unsupported q2/q3 pairs conditioned on q0/q1; off keeps unrestricted input'),
+        DeclareLaunchArgument('coupling_reference',default_value='',
+                              description='Optional delta-q tuple reference JSON; empty uses config/manual_joint_coupling.json'),
         DeclareLaunchArgument('model',default_value='linear',choices=['linear','mlp'],
                               description='linear: existing calibration policy; mlp: trained neural networks'),
+        DeclareLaunchArgument('model_file',default_value='',
+                              description='Optional model JSON for a single finger; empty uses the default model'),
+        DeclareLaunchArgument('thumb_version',default_value='default',choices=['default','v3'],
+                              description='Thumb policy in linear thumb/five mode; default keeps original mapping'),
         DeclareLaunchArgument('mlp_model_dir',default_value='',
                               description='Optional MLP JSON directory; defaults to config/q_to_motor_mlp'),
         DeclareLaunchArgument('thumb_combo_calibration',default_value='',

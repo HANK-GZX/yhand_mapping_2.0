@@ -54,28 +54,37 @@ class MotorToQEstimator:
         self.finger = finger
         self.motor_ids = tuple(FINGER_SPECS[finger]['motor_inputs'])
         self.q_names = tuple(f'left_{finger}_q{i}' for i in range(4))
-        if (c.get('schema_version') != 1 or c.get('mapping') != 'motor_feedback_to_q'
+        if (c.get('schema_version') not in (1, 2) or c.get('mapping') != 'motor_feedback_to_q'
                 or c.get('hand') != 'left' or c.get('finger') != finger
                 or c.get('motor_ids') != list(self.motor_ids) or c.get('q_names') != list(self.q_names)
                 or c.get('motor_units') != 'degrees' or c.get('q_units') != 'degrees'
                 or c.get('output_coordinates') != 'absolute_glove_angles'):
-            raise ValueError(f'需要左手{finger}电机反馈到四个绝对手套角的版本1模型')
+            raise ValueError(f'需要左手{finger}电机反馈到四个绝对手套角的版本1/2模型')
         self.q_zero = finite(c['relative_output_reference_deg'], 4, '相对角参考')
         self.model = model or c['default_model']
-        if self.model not in ('linear', 'quadratic'):
-            raise ValueError('model必须是linear或quadratic')
+        if self.model not in ('linear', 'quadratic', 'mlp'):
+            raise ValueError('model必须是linear、quadratic或mlp')
+        if (c['schema_version'] == 2) != (self.model == 'mlp'):
+            raise ValueError('版本1用于多项式，版本2用于分支MLP')
         fit = c['fits'][self.model]
-        self.degree = 1 if self.model == 'linear' else 2
-        if fit['degree'] != self.degree:
-            raise ValueError('模型名称与多项式阶数不一致')
         self.center = finite(fit['input_center'], len(self.motor_ids), '输入中心')
         self.scale = finite(fit['input_scale'], len(self.motor_ids), '输入尺度')
         if min(self.scale) <= 0:
             raise ValueError('输入尺度必须大于0')
-        terms = len(feature_row([0.0]*len(self.motor_ids), self.degree))
-        self.coefficients = [finite(row, 4, '输出系数') for row in fit['coefficients']]
-        if len(self.coefficients) != terms:
-            raise ValueError('特征数与系数行数不一致')
+        if self.model == 'mlp':
+            from mlp_motor_to_q import FOUR_FINGERS, GroupedMLP
+            if (finger not in FOUR_FINGERS or c.get('model_type') != 'grouped_mlp'
+                    or c.get('input_coordinates') != 'recorded_motor_feedback_positions'):
+                raise ValueError('MLP需要四指原始反馈位置到绝对角的分支模型')
+            self.network = GroupedMLP(fit, len(self.motor_ids))
+        else:
+            self.degree = 1 if self.model == 'linear' else 2
+            if fit['degree'] != self.degree:
+                raise ValueError('模型名称与多项式阶数不一致')
+            terms = len(feature_row([0.0]*len(self.motor_ids), self.degree))
+            self.coefficients = [finite(row, 4, '输出系数') for row in fit['coefficients']]
+            if len(self.coefficients) != terms:
+                raise ValueError('特征数与系数行数不一致')
         self.bounds = [finite(c['motor_training_bounds_deg'][str(mid)], 2, '训练范围')
                        for mid in self.motor_ids]
         if any(lo > hi for lo, hi in self.bounds):
@@ -89,6 +98,8 @@ class MotorToQEstimator:
         m = finite(positions, len(self.motor_ids), '电机位置')
         try:
             x = [(v-c)/s for v, c, s in zip(m, self.center, self.scale)]
+            if self.model == 'mlp':
+                return self.network.predict_standardized(x)
             phi = feature_row(x, self.degree)
             return finite([math.fsum(v*row[j] for v, row in zip(phi, self.coefficients))
                            for j in range(4)], 4, '估计关节角')

@@ -34,10 +34,10 @@ def setup(context):
 def generate_launch_description():
     package = Path(get_package_share_directory('yhand_mapping'))
     return LaunchDescription([
-        DeclareLaunchArgument('finger', default_value='five', choices=['five', 'thumb', 'index', 'middle', 'ring', 'little']),
+        DeclareLaunchArgument('finger', default_value='five', choices=['five', 'four', 'thumb', 'index', 'middle', 'ring', 'little']),
         DeclareLaunchArgument('feedback_topic', default_value='/yhand_left_feedback'),
         DeclareLaunchArgument('model_dir', default_value=str(package/'config')),
-        DeclareLaunchArgument('model', default_value='auto', choices=['auto', 'linear', 'quadratic']),
+        DeclareLaunchArgument('model', default_value='auto', choices=['auto', 'linear', 'quadratic', 'mlp']),
         DeclareLaunchArgument('publish_hz', default_value='50'),
         DeclareLaunchArgument('feedback_timeout', default_value='0.5'),
         *[DeclareLaunchArgument(name, default_value='') for name in ['q_topic', 'relative_q_topic',

@@ -124,13 +124,16 @@ def fake_sdk():
                 raw_pub.publish(raw)
             glove_pub.publish(glove)
         if ((mode in ('manus','manus_zero_motion') and pose_frames>=12) or (mode=='manus_outside_ranges' and pose_frames>=20)
-                or (mode=='manus_long_run' and pose_frames>=110)):
+                or (mode=='manus_long_run' and pose_frames>=int(
+                    os.environ.get('LITTLE_TEST_MANUS_LONG_FRAMES', '110')))):
             os.kill(os.getppid(),signal.SIGTERM)
-        if mode=='topic':
+        if mode in ('topic','coupling_topic'):
             target = Float64MultiArray()
             target.data = [0.0]*q_count
+            if mode=='coupling_topic' and pose_frames>=5:
+                target.data[-1] = 90.0  # Unsupported q2/q3 pair; q0/q1 stay at zero.
             target_pub.publish(target)
-            if pose_frames>=5:
+            if pose_frames >= (12 if mode=='coupling_topic' else 5):
                 os.kill(os.getppid(),signal.SIGTERM)
 
     node.create_subscription(YHandMsg,sys.argv[3],command,10)
@@ -148,6 +151,18 @@ class PlanningTests(unittest.TestCase):
     def setUp(self):
         self.mapper = control.LittleFingerMapper()
         self.defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')
+
+    def test_publish_deadline_keeps_phase_and_skips_missed_slots(self):
+        deadline = 0.0
+        for i in range(500):
+            # A late wake-up must not add its delay to every subsequent period.
+            deadline, skipped = control.advance_publish_deadline(deadline, i*.01+.004, .01)
+            self.assertAlmostEqual(deadline, (i+1)*.01)
+            self.assertEqual(skipped, 0)
+        deadline, skipped = control.advance_publish_deadline(1.0, 1.037, .01)
+        self.assertAlmostEqual(deadline, 1.04)
+        self.assertEqual(skipped, 3)
+        self.assertGreater(deadline, 1.037)
 
     def test_calibrated_motor_zero_for_both_models(self):
         reference = [-5.0,-9.0,7.0,-10.0]
@@ -803,6 +818,62 @@ class LaunchWiringTests(unittest.TestCase):
         environment.start()
         cls.addClassCleanup(environment.stop)
 
+    def test_five_thumb_v3_selector_and_default_are_both_available(self):
+        from launch import LaunchContext
+        from launch.actions import DeclareLaunchArgument, ExecuteProcess
+        from launch.utilities import perform_substitutions
+        spec = importlib.util.spec_from_file_location('five_v3_launch',
+            PACKAGE/'launch/left_hand_q_to_motor_launch.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        option = next(a for a in module.generate_launch_description().entities
+                      if isinstance(a, DeclareLaunchArgument) and a.name == 'thumb_version')
+        self.assertEqual(set(option.choices), {'default', 'v3'})
+        context = LaunchContext()
+        context.launch_configurations.update(finger='five', input_mode='2', relative='true',
+            model='linear', thumb_version='v3', start_driver_node='false', start_glove_node='false',
+            start_angle_input_terminal='false', current='', publish_hz='50.0',
+            manus_topic='/test/glove', manus_raw_topic='/test/raw', manus_zero_seconds='1.0',
+            manus_timeout='.5')
+        def command():
+            action = next(a for a in module._launch_setup(context) if isinstance(a, ExecuteProcess))
+            return [perform_substitutions(context, part) for part in action.cmd]
+        selected = command()
+        self.assertEqual(selected[selected.index('--thumb-version')+1], 'v3')
+        self.assertNotIn('--model-file', selected)
+        context.launch_configurations['thumb_version'] = 'default'
+        self.assertNotIn('--thumb-version', command())
+        context.launch_configurations.update(thumb_version='v3', model='mlp')
+        with self.assertRaises(ValueError):
+            command()
+
+    def test_single_finger_candidate_model_is_forwarded_and_multifinger_rejected(self):
+        from launch import LaunchContext
+        from launch.actions import DeclareLaunchArgument, ExecuteProcess
+        from launch.utilities import perform_substitutions
+        spec = importlib.util.spec_from_file_location(
+            'candidate_launch', PACKAGE/'launch/left_hand_q_to_motor_launch.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        arguments = [a.name for a in module.generate_launch_description().entities
+                     if isinstance(a, DeclareLaunchArgument)]
+        self.assertIn('model_file', arguments)
+        context = LaunchContext()
+        context.launch_configurations.update(
+            finger='thumb', input_mode='1', relative='true', model='linear',
+            model_file='/tmp/thumb candidate.json', start_driver_node='false',
+            start_angle_input_terminal='false', joint_angle_topic='',
+            current='', publish_hz='50.0')
+        actions = module._launch_setup(context)
+        controller = next(a for a in actions if isinstance(a, ExecuteProcess))
+        command = [perform_substitutions(context, part) for part in controller.cmd]
+        self.assertEqual(command[command.index('--model-file')+1],
+                         '/tmp/thumb candidate.json')
+        self.assertEqual(command[command.index('--model')+1], 'linear')
+        context.launch_configurations['finger'] = 'five'
+        with self.assertRaisesRegex(ValueError, 'model_file仅用于单指模式'):
+            module._launch_setup(context)
+
     def test_one_launch_starts_headless_controller_and_input_window(self):
         from launch import LaunchContext
         from launch.actions import ExecuteProcess,RegisterEventHandler,TimerAction
@@ -823,12 +894,22 @@ class LaunchWiringTests(unittest.TestCase):
         self.assertIn('--relative',command)
         self.assertIn('--start-driver',command)
         self.assertEqual(command[command.index('--target-topic')+1],'/little_target')
+        self.assertEqual(command[command.index('--manual-coupling')+1],'reject')
+        self.assertTrue(Path(command[command.index('--coupling-reference')+1]).is_file())
         self.assertTrue(any(isinstance(a,RegisterEventHandler) for a in actions))
         timer = next(a for a in actions if isinstance(a,TimerAction))
         terminal = timer.actions[0]
         command = [perform_substitutions(context,part) for part in terminal.cmd]
         self.assertEqual(command[0],'/fake/gnome-terminal')
         self.assertEqual(command[command.index('--topic')+1],'/little_target')
+        self.assertEqual(command[command.index('--manual-coupling')+1],'reject')
+        self.assertEqual(command[command.index('--relative')+1],'true')
+        context.launch_configurations['manual_coupling'] = 'off'
+        with patch.object(launch_module.shutil,'which',return_value='/fake/gnome-terminal'):
+            disabled = launch_module._launch_setup(context)
+        process = next(a for a in disabled if isinstance(a,ExecuteProcess))
+        cmd = [perform_substitutions(context,part) for part in process.cmd]
+        self.assertEqual(cmd[cmd.index('--manual-coupling')+1],'off')
 
     def test_headless_launch_reuses_driver_and_raw_q(self):
         from launch import LaunchContext
@@ -874,6 +955,8 @@ class LaunchWiringTests(unittest.TestCase):
         self.assertEqual(controller[controller.index('--manus-topic')+1],'/manus_angles')
         self.assertIn('--relative',controller)
         self.assertNotIn('--target-topic',controller)
+        self.assertNotIn('--manual-coupling',controller)
+        self.assertNotIn('--coupling-reference',controller)
         self.assertFalse(any(isinstance(a,TimerAction) for a in actions))
         context.launch_configurations['start_glove_node'] = 'false'
         self.assertEqual(len([a for a in launch_module._launch_setup(context) if isinstance(a,ExecuteProcess)]),1)
@@ -941,7 +1024,7 @@ class LaunchWiringTests(unittest.TestCase):
         context = LaunchContext()
         context.launch_configurations.update(finger='middle',input_mode='1',relative='true',model='linear',
             start_driver_node='true',start_angle_input_terminal='true',start_glove_node='true',joint_angle_topic='',
-            current='',publish_hz='50',manus_topic='/test_manus',manus_raw_topic='/test_raw',
+            current='',publish_hz='100',manus_topic='/test_manus',manus_raw_topic='/test_raw',
             manus_zero_seconds='1',manus_timeout='.5')
         with patch.object(module.shutil,'which',return_value='/fake/gnome-terminal'):
             actions = module._launch_setup(context)
@@ -949,10 +1032,12 @@ class LaunchWiringTests(unittest.TestCase):
         command = [perform_substitutions(context,p) for p in controller.cmd]
         self.assertEqual(command[command.index('--finger')+1],'middle')
         self.assertEqual(command[command.index('--target-topic')+1],'/left_middle_target_q')
+        self.assertEqual(command[command.index('--publish-hz')+1],'100')
         self.assertNotIn('--current',command)
         terminal = next(a for a in actions if isinstance(a,TimerAction)).actions[0]
         command = [perform_substitutions(context,p) for p in terminal.cmd]
         self.assertEqual(command[command.index('--finger')+1],'middle')
+        self.assertEqual(command[command.index('--publish-hz')+1],'100')
         context.launch_configurations['input_mode'] = '2'
         with patch.object(module.shutil,'which') as terminal_lookup:
             actions = module._launch_setup(context);terminal_lookup.assert_not_called()
@@ -1059,10 +1144,12 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                        '--glove-topic',topic+'/glove','--output-dir',str(root/'output'),
                        '--hold-seconds','30' if interrupt else '1' if mode=='dropout' else '.2',
                        '--feedback-timeout','.25','--ready-timeout','8']
-            if mode=='topic':
+            if mode in ('topic','coupling_topic'):
                 index = command.index('--q')
                 del command[index:index+1+q_count]
                 command += ['--target-topic',topic+'/target']
+                if mode=='coupling_topic':
+                    command += ['--manual-coupling','reject']
             if mode.startswith('manus'):
                 index = command.index('--q')
                 del command[index:index+1+q_count]
@@ -1088,7 +1175,7 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                 if process.poll() is None:
                     process.kill()
                     process.communicate()
-            expected = 0 if mode in ('normal','topic','manus','manus_outside_ranges','manus_long_run','manus_zero_motion') else 1
+            expected = 0 if mode in ('normal','topic','coupling_topic','manus','manus_outside_ranges','manus_long_run','manus_zero_motion') else 1
             self.assertEqual(process.returncode,expected,stdout+'\n'+stderr)
             entries = [json.loads(line) for line in (root/'events.jsonl').read_text().splitlines()]
             commands = [e for e in entries if e['event']=='command']
@@ -1157,6 +1244,13 @@ class FakeSDKIntegrationTests(unittest.TestCase):
                     for mid in motor_ids:
                         self.assertAlmostEqual(active[-1]['matrix'][mid-1][0],moved[f'M{mid}'],places=4)
             metadata = json.loads((root/'output/metadata.json').read_text())
+            if mode=='coupling_topic':
+                self.assertEqual(metadata['manual_joint_coupling']['action'],'reject')
+                self.assertTrue(metadata['manual_coupling_rejections'])
+                self.assertTrue(all(not any(item['q_relative']) for item in metadata['commands']))
+                self.assertIn('配对缺少记录',stdout)
+            else:
+                self.assertIsNone(metadata['manual_joint_coupling'])
             self.assertFalse(metadata['zero_coordinate_changed'])
             self.assertEqual(metadata['current_A'],expected_current)
             self.assertEqual(metadata['position_target_mode'],'direct')
@@ -1394,6 +1488,12 @@ class FakeSDKIntegrationTests(unittest.TestCase):
 
     def test_target_topic_runs_without_stdin(self):
         self.exercise('topic')
+
+    def test_manual_coupling_topic_rejects_pair_and_keeps_previous_index_target(self):
+        self.exercise('coupling_topic',finger='index')
+
+    def test_manual_coupling_topic_rejects_five_finger_target_atomically(self):
+        self.exercise('coupling_topic',finger='five')
 
     def test_manus_uses_operator_relative_changes(self):
         self.exercise('manus')

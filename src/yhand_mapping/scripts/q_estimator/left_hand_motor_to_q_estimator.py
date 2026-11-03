@@ -13,6 +13,7 @@ import time
 from left_thumb_motor_to_q_estimator import (
     FeedbackState, MotorToQEstimator, PACKAGE, create_estimator_node, finite, fit_model)
 from left_little_q_to_motor import FINGER_SPECS
+from mlp_motor_to_q import FOUR_FINGERS
 
 FINGERS = ('thumb', 'index', 'middle', 'ring', 'little')
 DATA_ROOT = PACKAGE/'scripts/motor_test_logs/data_collection'
@@ -89,22 +90,37 @@ def load_finger_data(collection, finger, refresh=False):
 
 
 def load_models(model_dir, selected=FINGERS, model=None):
-    return {finger: MotorToQEstimator(model_dir/f'left_{finger}_motor_to_q_estimator.json',
-                                     model, finger=finger) for finger in selected}
+    models = {}
+    if model == 'mlp' and tuple(selected) == ('thumb',):
+        raise ValueError('本次MLP仅训练食指/中指/无名指/小指，拇指请用auto/linear/quadratic')
+    for finger in selected:
+        filename = f'left_{finger}_motor_to_q_estimator.json'
+        path = model_dir/filename
+        chosen = model
+        if model == 'mlp':
+            if finger in FOUR_FINGERS:
+                candidate = model_dir/'motor_to_q_mlp'/filename
+                path = candidate if candidate.is_file() else path
+            else:
+                # In five-finger mode the untrained thumb keeps its existing default.
+                chosen = None
+        models[finger] = MotorToQEstimator(path, chosen, finger=finger)
+    return models
 
 
 class FiveFingerState:
-    """Each finger fails independently; a complete vector requires all five."""
+    """Four/five fingers fail independently; a full vector requires all selected."""
 
     def __init__(self, models, *, timeout=.5, q_zero=None, motor_offset=None,
                  allow_extrapolation=False):
-        if tuple(models) != FINGERS:
-            raise ValueError('五指模型必须按thumb/index/middle/ring/little排列')
+        if tuple(models) not in (FINGERS, FOUR_FINGERS):
+            raise ValueError('模型必须按thumb/index/middle/ring/little或index/middle/ring/little排列')
         self.models = models
         self.motor_ids = tuple(mid for model in models.values() for mid in model.motor_ids)
         zero = ([v for model in models.values() for v in model.q_zero] if q_zero is None
-                else finite(q_zero, 20, '五指q参考'))
-        offsets = [0.0]*24 if motor_offset is None else finite(motor_offset, 24, '五指电机偏移')
+                else finite(q_zero, 4*len(models), '多指q参考'))
+        offsets = ([0.0]*len(self.motor_ids) if motor_offset is None else
+                   finite(motor_offset, len(self.motor_ids), '多指电机偏移'))
         self.states = {}
         cursor = 0
         for i, (finger, model) in enumerate(models.items()):
@@ -124,7 +140,7 @@ class FiveFingerState:
         result = {'state': 'ok' if valid else 'incomplete_or_invalid', 'valid': valid,
                   'publishable': publishable, 'fingers': fingers,
                   'sequence': next(iter(fingers.values()))['sequence'],
-                  'finger_order': list(FINGERS), 'feedback_age_sec': next(iter(fingers.values()))['feedback_age_sec']}
+                  'finger_order': list(self.models), 'feedback_age_sec': next(iter(fingers.values()))['feedback_age_sec']}
         if all('q_absolute_deg' in s for s in fingers.values()):
             for key in ['q_absolute_deg', 'q_relative_deg']:
                 result[key] = [value for s in fingers.values() for value in s[key]]
@@ -137,17 +153,18 @@ def create_five_node(args, models):
     from devices_pkg.msg import YHandMsg
     from sensor_msgs.msg import JointState
     from std_msgs.msg import Bool, Float64MultiArray, MultiArrayDimension, String
+    group = 'five' if tuple(models) == FINGERS else 'four'
 
     class FiveNode(Node):
         def __init__(self):
-            super().__init__('left_hand_motor_to_q_estimator')
+            super().__init__('left_hand_motor_to_q_estimator' if group == 'five' else 'left_four_motor_to_q_estimator')
             self.state = FiveFingerState(models, timeout=args.feedback_timeout, q_zero=args.q_zero,
                 motor_offset=args.motor_offset, allow_extrapolation=args.allow_extrapolation)
             self.outputs = {}
-            for finger in ['five', *FINGERS]:
-                prefix = 'left_hand' if finger == 'five' else f'left_{finger}'
+            for finger in [group, *models]:
+                prefix = ('left_hand' if group == 'five' else 'left_four') if finger == group else f'left_{finger}'
                 topics = ([args.q_topic, args.relative_q_topic, args.joint_state_topic, args.valid_topic]
-                          if finger == 'five' else [f'/{prefix}_estimated_q', f'/{prefix}_estimated_q_relative',
+                          if finger == group else [f'/{prefix}_estimated_q', f'/{prefix}_estimated_q_relative',
                                f'/{prefix}_estimated_joint_states', f'/{prefix}_estimate_valid'])
                 self.outputs[finger] = [self.create_publisher(typ, topic, 10)
                     for typ, topic in zip([Float64MultiArray, Float64MultiArray, JointState, Bool], topics)]
@@ -160,7 +177,8 @@ def create_five_node(args, models):
             self.receipt_stamp = None
             from motor_to_q_logging import attach_log
             self.diagnostic_log = attach_log(self, args, models)
-            self.get_logger().info(f'订阅{args.feedback_topic}，五指24电机→20个绝对角（度）；不发送电机命令')
+            self.get_logger().info(f'订阅{args.feedback_topic}，{len(self.state.motor_ids)}电机→{4*len(models)}个绝对角（度）；'
+                                   f'模型={dict((f, m.model) for f, m in models.items())}；不发送电机命令')
 
         def feedback_cb(self, msg):
             self.receipt_stamp = self.get_clock().now().to_msg()
@@ -180,21 +198,21 @@ def create_five_node(args, models):
         def tick(self):
             now = time.monotonic()
             status = self.state.snapshot(now)
-            for finger, s in [('five', status), *status['fingers'].items()]:
+            for finger, s in [(group, status), *status['fingers'].items()]:
                 q_pub, rel_pub, joint_pub, valid_pub = self.outputs[finger]
                 valid_pub.publish(Bool(data=s['valid']))
                 if not s['publishable'] or self.last_published[finger] == s['sequence']:
                     continue
-                size = 20 if finger == 'five' else 4
+                size = 4*len(models) if finger == group else 4
                 for pub, key in [(q_pub, 'q_absolute_deg'), (rel_pub, 'q_relative_deg')]:
                     msg = Float64MultiArray(data=s[key])
-                    msg.layout.dim = [MultiArrayDimension(label='thumb_index_middle_ring_little' if finger == 'five' else finger,
+                    msg.layout.dim = [MultiArrayDimension(label='_'.join(models) if finger == group else finger,
                                                           size=size, stride=size)]
                     pub.publish(msg)
                 joint = JointState()
                 joint.header.stamp = self.receipt_stamp
                 joint.name = ([name for model in models.values() for name in model.q_names]
-                              if finger == 'five' else list(models[finger].q_names))
+                              if finger == group else list(models[finger].q_names))
                 joint.position = [math.radians(v) for v in s['q_absolute_deg']]
                 joint_pub.publish(joint)
                 self.last_published[finger] = s['sequence']
@@ -220,11 +238,11 @@ def main(argv=None):
     predict = subs.add_parser('predict', help='不启动ROS的离线预览')
     run = subs.add_parser('run', help='订阅实际电机反馈，五指或单指状态估计')
     for sub in [predict, run]:
-        sub.add_argument('--finger', choices=['five', *FINGERS], default='five')
+        sub.add_argument('--finger', choices=['five', 'four', *FINGERS], default='five')
         sub.add_argument('--model-dir', type=Path, default=PACKAGE/'config')
-        sub.add_argument('--model', choices=['auto', 'linear', 'quadratic'], default='auto')
-        sub.add_argument('--q-zero', type=float, nargs='+', help='单指4角或五指20角；默认读取各模型参考')
-        sub.add_argument('--motor-offset', type=float, nargs='+', help='按模型motor_ids顺序；默认全0')
+        sub.add_argument('--model', choices=['auto', 'linear', 'quadratic', 'mlp'], default='auto')
+        sub.add_argument('--q-zero', type=float, nargs='+', help='单指4角、四指16角或五指20角；默认读取各模型参考')
+        sub.add_argument('--motor-offset', type=float, nargs='+', help='按模型motor_ids顺序；四指18路/五指24路；默认全0')
     predict.add_argument('--positions', type=float, nargs='+', required=True)
     run.add_argument('--feedback-topic', '--ifeedback-topic', default='/yhand_left_feedback')
     for option in ['q-topic', 'relative-q-topic', 'joint-state-topic', 'valid-topic', 'status-topic']:
@@ -240,7 +258,7 @@ def main(argv=None):
     run.add_argument('--robot-glove-topic', default='', help='可选独立机器手测量；必须与操作员手套话题不同')
     run.add_argument('--log-max-age', type=float, default=.1, help='侧输入与电机反馈接收时刻的最大对齐年龄，秒')
     args = parser.parse_args(argv)
-    selected = FINGERS if args.finger == 'five' else (args.finger,)
+    selected = FINGERS if args.finger == 'five' else FOUR_FINGERS if args.finger == 'four' else (args.finger,)
     try:
         if args.command == 'fit':
             if args.finger == 'five' and args.collection_dir is not None:
@@ -263,7 +281,7 @@ def main(argv=None):
             for mid, value in zip([mid for model in models.values() for mid in model.motor_ids], m):
                 msg.motors[mid-1].pos = value
             state = (FiveFingerState(models, q_zero=args.q_zero, motor_offset=args.motor_offset,
-                                    allow_extrapolation=True) if args.finger == 'five' else
+                                    allow_extrapolation=True) if args.finger in ('five', 'four') else
                      FeedbackState(models[args.finger], q_zero=args.q_zero, motor_offset=args.motor_offset,
                                    allow_extrapolation=True))
             state.update(msg, 0)
@@ -289,8 +307,8 @@ def main(argv=None):
         if args.log_enabled:
             topics += [args.q_cmd_topic, args.glove_topic]
             topics += [t for t in [args.glove_raw_topic, args.robot_glove_topic] if t]
-        if args.finger == 'five':
-            topics += [f'/left_{finger}_{suffix}' for finger in FINGERS for suffix in
+        if args.finger in ('five', 'four'):
+            topics += [f'/left_{finger}_{suffix}' for finger in selected for suffix in
                        ['estimated_q', 'estimated_q_relative', 'estimated_joint_states', 'estimate_valid']]
         if len(set(topics)) != len(topics) or any(not t.strip() for t in topics):
             raise ValueError('输入输出话题必须非空且互不相同')
@@ -299,7 +317,7 @@ def main(argv=None):
         rclpy.init(args=[])
         node = None
         try:
-            node = create_five_node(args, models) if args.finger == 'five' else create_estimator_node(args, models[args.finger])
+            node = create_five_node(args, models) if args.finger in ('five', 'four') else create_estimator_node(args, models[args.finger])
             rclpy.spin(node)
         except (KeyboardInterrupt, ExternalShutdownException):
             pass

@@ -5,6 +5,7 @@ import argparse
 import csv
 from datetime import datetime
 import importlib.util
+import hashlib
 import json
 import math
 import os
@@ -18,10 +19,15 @@ import threading
 import time
 
 from left_little_q_to_motor import FINGER_SPECS, FingerMapper, LittleFingerMapper, finite_values
+from motor_trajectory import MotorTrajectoryLimiter, mapper_motion_limits
 
 # Shared defaults and motor logs remain in the top-level scripts directory.
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from joint_coupling import DEFAULT_REFERENCE, JointCouplingError, JointCouplingReference
+
+THUMB_V3_MODEL_PATH = PACKAGE_DIR/'config/experiments/left_thumb_linear_coordination_v3.json'
 MOTOR_IDS = (11, 13, 18, 20)
 MOTOR_COUNT = 28
 CONTROL_MODELS = ('linear','mlp')
@@ -69,6 +75,12 @@ def control_model(model):
     return model
 
 
+def advance_publish_deadline(deadline, now, period):
+    """Keep the original phase and skip expired slots instead of catch-up sends."""
+    periods = max(1, math.floor((now-deadline)/period)+1)
+    return deadline+periods*period, periods-1
+
+
 class BothFingerMapper:
     """Two independent four-q mappings combined into one eight-motor command."""
     finger = 'both'
@@ -76,9 +88,11 @@ class BothFingerMapper:
     finger_label = '无名指和小指'
     glove_slice = slice(20,28)
 
-    def __init__(self, *, model='linear', model_dir=None):
+    def __init__(self, *, model='linear', model_dir=None, thumb_version='default'):
+        validate_thumb_version(self.finger, model, thumb_version)
         self.default_model = model
-        self.mappers = tuple(create_mapper(f, model=model, model_dir=model_dir) for f in self.fingers)
+        self.mappers = tuple(create_mapper(f, model=model, model_dir=model_dir,
+            thumb_version=thumb_version if f == 'thumb' else 'default') for f in self.fingers)
         self.motor_inputs = {mid: [j+4*i for j in indices]
                              for i, mapper in enumerate(self.mappers)
                              for mid, indices in mapper.motor_inputs.items()}
@@ -133,15 +147,30 @@ class FiveFingerMapper(BothFingerMapper):
     glove_slice = slice(8,28)
 
 
-def create_mapper(finger,model_path=None, *, model='linear', model_dir=None):
+def validate_thumb_version(finger, model, version, model_path=None):
+    if version not in ('default', 'v3'):
+        raise ValueError('thumb_version必须为default或v3')
+    if version == 'v3':
+        if finger not in ('thumb', 'five') or model != 'linear':
+            raise ValueError('thumb_version v3仅适用于thumb/five的linear模式')
+        if model_path is not None:
+            raise ValueError('thumb_version v3不能与model_file同时指定')
+
+
+def create_mapper(finger,model_path=None, *, model='linear', model_dir=None,
+                  thumb_version='default'):
     control_model(model)
+    validate_thumb_version(finger, model, thumb_version, model_path)
     if model_dir is not None and model != 'mlp':
         raise ValueError('--mlp-model-dir只适用于mlp')
     if finger in COMBINED_FINGERS:
         if model_path is not None:
             raise ValueError('多指模式自动加载各指模型，--model-file仅用于单指模式')
         return {'both':BothFingerMapper,'three':ThreeFingerMapper,'four':FourFingerMapper,
-                'five':FiveFingerMapper}[finger](model=model, model_dir=model_dir)
+                'five':FiveFingerMapper}[finger](model=model, model_dir=model_dir,
+                                                thumb_version=thumb_version)
+    if thumb_version == 'v3':
+        model_path = THUMB_V3_MODEL_PATH
     if model == 'mlp':
         sys.path.insert(0, str(SCRIPT_DIR/'q_2_m MLP mapping'))
         from mlp_q_to_motor import MLPFingerMapper as Mapper
@@ -150,6 +179,13 @@ def create_mapper(finger,model_path=None, *, model='linear', model_dir=None):
         path = model_path or (model_dir/f'left_{finger}_q_to_motor_{model}.json' if model_dir is not None else None)
         return Mapper(path, finger=finger)
     return FingerMapper(model_path,finger=finger)
+
+
+def selected_thumb_version(mapper):
+    for child in getattr(mapper, 'mappers', (mapper,)):
+        if child.finger == 'thumb':
+            return 'v3' if child.config.get('thumb_linear_coordination') else 'default'
+    return None
 
 
 def default_feedforward(finger):
@@ -218,18 +254,23 @@ def position_matrix(defaults, positions, current, finger='little', *, feedback_p
     return result
 
 
-def prepare_target(mapper, values, relative=True, model='linear'):
-    """Keep input angles unchanged; clamp only motors with existing limits."""
+def prepare_target(mapper, values, relative=True, model='linear', coupling=None):
+    """Optionally reject unsupported manual tuples; never rewrite the angles."""
     control_model(model)
     values = finite_values(values, len(mapper.q_reference), 'q')
     delta = values if relative else [v-r for v,r in zip(values,mapper.q_reference)]
+    if coupling is not None:
+        coupling.require(getattr(mapper, 'fingers', (mapper.finger,)), delta)
     predicted = mapper.predict(delta,relative=True,model=model)
     predicted_positions = {mid: predicted[f'M{mid}'] for mid in mapper.motor_ids}
     positions = clamp_motor_positions(predicted_positions,mapper.finger)
     clipped_motors = [mid for mid in positions if positions[mid]!=predicted_positions[mid]]
     raw = [v+r for v,r in zip(delta,mapper.q_reference)]
+    coordination = next((child.coordination.last for child in getattr(mapper, 'mappers', (mapper,))
+                         if getattr(child, 'coordination', None) is not None), None)
     return {'q_glove':raw,'q_relative':list(delta),'positions':positions,
             'predicted_positions':predicted_positions,'clipped_motors':clipped_motors,
+            'thumb_coordination':coordination,
             'release_currents_A':dict(FINGER_RELEASE_CURRENTS_A[mapper.finger])}
 
 
@@ -389,7 +430,12 @@ def load_thumb_combo_policy(path, finger):
     return ThumbComboPolicy(path)
 
 
-def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
+def run(args,mapper,defaults,initial_target, *, thumb_policy=None, coupling=None):
+    motion_limits = mapper_motion_limits(mapper)
+    trajectory = MotorTrajectoryLimiter(motion_limits) if motion_limits else None
+    coordination_config = next((child.config['thumb_linear_coordination']
+                                for child in getattr(mapper, 'mappers', (mapper,))
+                                if 'thumb_linear_coordination' in child.config), None)
     finger = mapper.finger
     motor_ids = mapper.motor_ids
     finger_label = mapper.finger_label
@@ -431,7 +477,9 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
     started = time.monotonic()
     log_dir = args.output_dir or SCRIPT_DIR/f'motor_test_logs/{finger}_q_to_motor_test'/datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     log_dir.mkdir(parents=True,exist_ok=True)
-    metadata = {'hand':'left','finger':finger,'model':args.model,'relative_input':args.relative,
+    metadata = {'hand':'left','finger':finger,'model':args.model,
+                'thumb_version':selected_thumb_version(mapper),
+                'relative_input':args.relative,
                 'q_command_state_topic':f'/left_{finger}_q_command_state',
                 'fingers':list(getattr(mapper,'fingers',(finger,))),
                 'finger_q_slices':{f:[4*i,4*i+4] for i,f in enumerate(getattr(mapper,'fingers',(finger,)))},
@@ -458,6 +506,8 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                 'unlimited_position_motor_ids':[mid for mid in motor_ids if mid not in motor_limits],
                 'motor_position_clipped_targets':0,
                 'publish_hz':args.publish_hz,'feedback_timeout_sec':args.feedback_timeout,
+                'publish_schedule':'monotonic_fixed_deadline_skip_missed',
+                'publish_skipped_periods':0,
                 'cmd_topic':args.cmd_topic,'feedback_topic':args.feedback_topic,'glove_topic':args.glove_topic,
                 'target_topic':args.target_topic,
                 'input_mode':args.input_mode,'manus_topic':args.manus_topic,
@@ -475,8 +525,32 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                 'model_file':str(args.model_file) if finger not in COMBINED_FINGERS else None,
                 'defaults_file':str(args.defaults_path),
                 'zero_coordinate_changed':False,'commands':command_lines}
+    metadata['manual_joint_coupling'] = ({'action':'reject', 'path':str(coupling.path),
+        'sha256':coupling.sha256, 'coordinates':'delta_q_deg',
+        'condition_q_indices':[0,1], 'paired_q_indices':[2,3],
+        'tolerance_deg':coupling.tolerance.tolist(), 'source':coupling.data['source'],
+        'note':'Observed operator inputs, not verified robot reachability.'} if coupling else None)
+    metadata['manual_coupling_rejections'] = []
     metadata['thumb_combo_policy'] = ({'path':str(thumb_policy.path), 'sha256':thumb_policy.sha256,
                                       'config':thumb_policy.config} if thumb_policy else None)
+    metadata['motor_trajectory_limits'] = {str(mid): value for mid,value in motion_limits.items()}
+    metadata['thumb_linear_coordination'] = coordination_config
+    if trajectory:
+        metadata['position_target_mode'] = ('model_with_startup_smoothing'
+            if len(trajectory.startup_profiles) == len(motion_limits)
+            else 'model_with_motor_trajectory_limits')
+        metadata['startup_only_motor_ids'] = list(trajectory.startup_profiles)
+        metadata['trajectory_velocity_definition'] = (
+            'startup_only: finite difference of emitted positions; continuous: limiter velocity; '
+            'neither is measured motor velocity')
+    if coordination_config or motion_limits:
+        snapshots = log_dir/'models'
+        snapshots.mkdir()
+        metadata['model_sha256'] = {}
+        for child in getattr(mapper, 'mappers', (mapper,)):
+            raw_model = child.model_path.read_bytes()
+            (snapshots/f'{child.finger}.json').write_bytes(raw_model)
+            metadata['model_sha256'][child.finger] = hashlib.sha256(raw_model).hexdigest()
     if thumb_policy:
         metadata['position_target_mode'] = 'model_plus_measured_thumb_combo_path'
         metadata['thumb_combo_active_frames'] = 0
@@ -611,6 +685,16 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
         (log_dir/'metadata.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
         print('目标：'+json.dumps(entry,ensure_ascii=False),flush=True)
 
+    def manual_target(values):
+        try:
+            return prepare_target(mapper,values,args.relative,args.model,coupling=coupling)
+        except JointCouplingError as exc:
+            metadata['manual_coupling_rejections'].append({
+                'elapsed_sec':time.monotonic()-started, 'input_q':list(values),
+                'relative_input':args.relative, 'results':exc.results})
+            (log_dir/'metadata.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
+            raise
+
     try:
         rclpy.init(args=[],context=context,signal_handler_options=SignalHandlerOptions.NO)
         node = Node(f'left_{finger}_q_to_motor_test',context=context)
@@ -654,9 +738,10 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                                       start_new_session=True)
 
         deadline = time.monotonic()+args.ready_timeout
+        publish_period = 1.0/args.publish_hz
         next_publish = time.monotonic()
         while not stop.is_set():
-            executor.spin_once(timeout_sec=0.01)
+            executor.spin_once(timeout_sec=max(0.0,min(0.005,next_publish-time.monotonic())))
             now = time.monotonic()
             if driver is not None and driver.poll() is not None:
                 raise RuntimeError(f'SDK驱动退出，退出码{driver.returncode}')
@@ -669,7 +754,10 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
             # selected-finger current, while other24 channels keep default tension.
             if now>=next_publish and publisher.get_subscription_count()>0:
                 publish(current_matrix(defaults,finger))
-                next_publish = now+1.0/args.publish_hz
+                next_publish,_ = advance_publish_deadline(next_publish,now,publish_period)
+            elif now>=next_publish:
+                # Keep discovery responsive without busy-spinning before the SDK subscribes.
+                next_publish,_ = advance_publish_deadline(next_publish,now,publish_period)
             if fresh_feedback(now):
                 bad = [i+1 for i,row in enumerate(state['feedback']) if row[3]!=0]
                 if bad:
@@ -701,10 +789,18 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
         if thumb_policy:
             fields += [f'm{mid}_{suffix}' for mid in (4,6,7,8,14,27)
                        for suffix in ['combo_target','combo_correction','combo_gain_scale']]
+        if coordination_config:
+            fields += ['thumb_side_secondary_weight']
+            fields += [f'm{mid}_uncoordinated_prediction' for mid in (8,14,27)]
+        fields += [f'm{mid}_trajectory_{suffix}' for mid in motion_limits
+                   for suffix in ('velocity', 'phase', 'blend_weight', 'startup_elapsed_sec')]
         stream = (log_dir/'samples.csv').open('w',newline='')
         writer = csv.DictWriter(stream,fieldnames=fields)
         writer.writeheader()
         (log_dir/'metadata.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
+        if coupling is not None:
+            print('手动耦合检查已启用：q0/q1为条件，q2/q3须靠近同一条已记录配对；'
+                  '缺少记录时拒绝新目标并保持当前输出。参考为人手输入分布，非机械可达边界。',flush=True)
         if args.input_mode=='manus':
             manus_state['armed_at'] = time.monotonic()
             stable_note = (f'，{q_count}个q各自极差须≤{manus.max_range_deg:g}°'
@@ -730,13 +826,14 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
         next_status = next_publish+1
         last_flush = next_publish
         while not stop.is_set():
-            executor.spin_once(timeout_sec=0.005)
+            executor.spin_once(timeout_sec=max(0.0,min(0.005,next_publish-time.monotonic())))
             now = time.monotonic()
             if driver is not None and driver.poll() is not None:
                 raise RuntimeError(f'SDK驱动退出，退出码{driver.returncode}')
             if now<next_publish:
                 continue
-            next_publish = now+1.0/args.publish_hz
+            next_publish,skipped = advance_publish_deadline(next_publish,now,publish_period)
+            metadata['publish_skipped_periods'] += skipped
             if node.count_publishers(args.cmd_topic)>1:
                 conflict = True
                 raise RuntimeError('检测到其他指令发布者，退出测试')
@@ -775,7 +872,7 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                 line = commands.get_nowait()
                 if isinstance(line,list):
                     try:
-                        set_target(prepare_target(mapper,line,args.relative,args.model))
+                        set_target(manual_target(line))
                     except ValueError as exc:
                         print(f'目标未执行：{exc}',flush=True)
                     continue
@@ -790,7 +887,7 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                     print(json.dumps({'state':state['state'],'positions':{f'M{m}':state['feedback'][m-1][0] for m in motor_ids}},ensure_ascii=False),flush=True)
                 elif line:
                     try:
-                        set_target(prepare_target(mapper,parse_angles(line,q_count),args.relative,args.model))
+                        set_target(manual_target(parse_angles(line,q_count)))
                     except ValueError as exc:
                         print(f'目标未执行：{exc}',flush=True)
             if stop.is_set():
@@ -815,6 +912,11 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
             elif thumb_policy:
                 thumb_policy.reset()
                 state['thumb_combo'] = None
+            if trajectory:
+                if target is None:
+                    trajectory.reset()
+                else:
+                    matrix = trajectory.apply(matrix, state['feedback'], now)
             matrix = publish(matrix)
             fb = state['feedback']
             glove_age = now-state['glove_at'] if state['glove_at'] is not None else None
@@ -825,6 +927,11 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
             record['manus_age_sec'] = now-manus.latest_at if manus.latest_at is not None else None
             record['manus_left_raw_age_sec'] = now-manus_state['left_at'] if manus_state['left_at'] is not None else None
             combo_state = state['thumb_combo'] or {}
+            if coordination_config:
+                details = target.get('thumb_coordination') if target else None
+                record['thumb_side_secondary_weight'] = details['side_secondary_weight'] if details else None
+                for mid in (8,14,27):
+                    record[f'm{mid}_uncoordinated_prediction'] = details['raw'][f'M{mid}'] if details else None
             for suffix,key in [('','combo'),('_from','combo_from'),('_to','combo_to'),
                                ('_weight','weight'),('_distance_deg','distance_deg'),('_segment','segment')]:
                 record['thumb_combo'+suffix] = combo_state.get(key)
@@ -852,6 +959,12 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None):
                     for suffix,key in [('target','motor_target_deg'),('correction','correction_deg'),
                                        ('gain_scale','gain_scale')]:
                         record[f'm{mid}_combo_{suffix}'] = combo_state.get(key,{}).get(str(mid))
+                if mid in motion_limits:
+                    record[f'm{mid}_command'] = row[0] if row[3] or row[4] else None
+                    record[f'm{mid}_trajectory_velocity'] = trajectory.states.get(mid, (None, None))[1]
+                    details = trajectory.last.get(mid, {})
+                    for suffix in ('phase', 'blend_weight', 'startup_elapsed_sec'):
+                        record[f'm{mid}_trajectory_{suffix}'] = details.get(suffix)
             writer.writerow(record)
             if now>=last_flush+1:
                 stream.flush()
@@ -904,6 +1017,10 @@ def main(argv=None):
     parser.add_argument('--finger',choices=list(CONTROL_FINGER_SPECS),default='little',help='thumb拇指；index食指；middle中指；ring无名指；little小指；both双指；three三指；four四指；five五指')
     parser.add_argument('--q',type=float,nargs='+',metavar='Q',help='单指4角；both8角；three12角；four16角；five按拇指/食指/中指/无名指/小指顺序20角')
     parser.add_argument('--input-mode',choices=['manual','manus'],default='manual')
+    parser.add_argument('--manual-coupling',choices=['off','reject'],default='off',
+                        help='手动输入的日志配对约束；launch mode=1默认reject，直接脚本默认off')
+    parser.add_argument('--coupling-reference',type=Path,default=DEFAULT_REFERENCE,
+                        help='四角Δq参考文件，mode=2不使用')
     parser.add_argument('--manus-topic',default='/glove_joint_data',help='操作员Manus的48维角度话题')
     parser.add_argument('--manus-raw-topic',default='/glove_joint_data_raw_skeleton',help='检测左手Manus是否在线')
     parser.add_argument('--manus-zero-seconds',type=float,default=1.0,help='启动时保持零位姿态的采样时间')
@@ -915,6 +1032,8 @@ def main(argv=None):
     parser.add_argument('--model',choices=CONTROL_MODELS,default='linear',
                         help='linear使用原标定策略；mlp使用训练的神经网络')
     parser.add_argument('--model-file',type=Path,help='默认按所选手指加载对应模型')
+    parser.add_argument('--thumb-version',choices=['default','v3'],default='default',
+                        help='thumb/five的linear模式可选v3；默认保留原模型')
     parser.add_argument('--mlp-model-dir',type=Path,help='MLP模型目录；默认config/q_to_motor_mlp')
     parser.add_argument('--thumb-combo-calibration',type=Path,
                         help='可选拇指实测combo路径；仅thumb/five，协调M4/M14/侧摆与被动伸肌')
@@ -952,11 +1071,23 @@ def main(argv=None):
         currents = args.current.values() if isinstance(args.current,dict) else [args.current]
         if not all(math.isfinite(v) for v in currents):
             raise ValueError('--current必须是有限数值')
-        mapper = create_mapper(args.finger,args.model_file,model=args.model,model_dir=args.mlp_model_dir)
+        mapper = create_mapper(args.finger,args.model_file,model=args.model,model_dir=args.mlp_model_dir,
+                               thumb_version=args.thumb_version)
+        coupling = (JointCouplingReference(args.coupling_reference)
+                    if args.input_mode=='manual' and args.manual_coupling=='reject' else None)
+        if coupling is not None:
+            missing = set(getattr(mapper,'fingers',(mapper.finger,))) - coupling.clouds.keys()
+            if missing:
+                raise ValueError(f'耦合参考缺少手指数据：{sorted(missing)}')
         thumb_policy = load_thumb_combo_policy(args.thumb_combo_calibration,args.finger)
+        motion_limits = mapper_motion_limits(mapper)
+        trajectory = MotorTrajectoryLimiter(motion_limits) if motion_limits else None
+        if thumb_policy and any('thumb_linear_coordination' in child.config
+                                for child in getattr(mapper, 'mappers', (mapper,))):
+            raise ValueError('角度优先候选不能同时启用实测thumb combo路径')
         args.model_file = mapper.model_path
         defaults = load_defaults(args.defaults_path)
-        target = prepare_target(mapper,args.q,args.relative,args.model) if args.q is not None else None
+        target = prepare_target(mapper,args.q,args.relative,args.model,coupling=coupling) if args.q is not None else None
         if args.dry_run:
             if target is None:
                 raise ValueError('--dry-run需要同时提供--q')
@@ -964,14 +1095,22 @@ def main(argv=None):
                                              feedback_positions=dict.fromkeys(mapper.motor_ids,0.0))
             if thumb_policy:
                 preview_matrix = thumb_policy.apply(preview_matrix,target['q_relative'][:4],[[0.]*4 for _ in range(28)],0.)
+            if trajectory:
+                preview_matrix = trajectory.apply(preview_matrix, [[0.]*4 for _ in range(28)], 0.)
             print(json.dumps({'q_glove':target['q_glove'],'q_relative':target['q_relative'],
                               'finger':args.finger,
+                              'thumb_version':selected_thumb_version(mapper),
+                              'manual_coupling': 'reject' if coupling else 'off',
                               'model_files':getattr(mapper,'model_paths',{args.finger:str(mapper.model_path)}),
                               'model_effective_models':{str(mid):name for mid,name in mapper.effective_models(args.model).items()},
                               'model_effective_degrees':mapper.effective_degrees(args.model),
                               'output_alignment':mapper.config.get('output_alignment'),
                               'motor_positions':{f'M{k}':v for k,v in target['positions'].items()},
                               'motor_predictions':{f'M{k}':v for k,v in target['predicted_positions'].items()},
+                              'motor_trajectory_limits':{str(mid):value for mid,value in motion_limits.items()},
+                              'motor_trajectory_state':trajectory.last if trajectory else {},
+                              'trajectory_preview_note':'Limited motors show the initial frame from assumed zero feedback; motor_positions are the desired targets.' if trajectory else None,
+                              'thumb_coordination':target.get('thumb_coordination'),
                               'directional_side_motor_ids':list(DIRECTIONAL_SIDE_MOTORS[args.finger]),
                               'side_direction_current_A':SIDE_DIRECTION_CURRENT_A if DIRECTIONAL_SIDE_MOTORS[args.finger] else 0.0,
                               'side_direction_deadband_deg':SIDE_DIRECTION_DEADBAND_DEG if DIRECTIONAL_SIDE_MOTORS[args.finger] else 0.0,
@@ -989,7 +1128,7 @@ def main(argv=None):
                               'mit_matrix_order':'SDK M1..M28: [pos,vel,tor,kp,kd]',
                               'mit_matrix':preview_matrix},ensure_ascii=False,indent=2))
             return 0
-        return run(args,mapper,defaults,target,thumb_policy=thumb_policy)
+        return run(args,mapper,defaults,target,thumb_policy=thumb_policy,coupling=coupling)
     except (ValueError,OSError,KeyError,ImportError) as exc:
         parser.error(str(exc))
 

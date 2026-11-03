@@ -2,6 +2,12 @@
 
 `scripts/q_estimator/left_hand_motor_to_q_estimator.py` 在原单拇指估计器基础上扩展为五指。读取同一帧 `/yhand_left_feedback`，逐指用实际电机位置计算四个绝对手套角，拼接为20角。节点只订阅反馈、发布估计，不启动SDK、不发送电机命令、不修改现有遥操或q→m系数，也不自动闭合关节反馈环。
 
+四指新增独立q0/q123分支MLP，训练、肌群输入优先级、验证和运行说明见
+[q_estimator说明](scripts/q_estimator/README.md#四指分支mlp)。
+`finger:=four model:=mlp`使用食指/中指/无名指/小指18路电机估计16角；
+`finger:=five model:=mlp`使用四指MLP并保留原拇指多项式默认模型。
+`auto/linear/quadratic`的默认行为保持，下面的原训练表对应多项式模型。
+
 ## 运行
 
 先保持现有五指遥操运行，在另一终端启动估计器。先退出旧单拇指估计进程，避免它与五指节点重复发布拇指话题。

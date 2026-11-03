@@ -12,11 +12,12 @@ endfunction()
 add_mapping_pytest(manus_action_one 30)
 add_mapping_pytest(manus_action_two 30)
 add_mapping_pytest(manus_action_three 30)
+add_mapping_pytest(joint_coupling 30 "ROS_LOG_DIR=/tmp/yhand_joint_coupling_tests")
 add_mapping_pytest(motor_mapping 90)
 add_mapping_pytest(workspace_boundary_collect 90 "MPLBACKEND=Agg")
 add_mapping_pytest(data_collection_extensor 30)
 add_mapping_pytest(pretighten_shutdown 90)
-# Includes 54 real DDS cases backed by a fake SDK driver.
+# Includes 56 real DDS cases backed by a fake SDK driver.
 add_mapping_pytest(left_little_q_to_motor_test 300)
 add_mapping_pytest(left_thumb_q_to_motor 30)
 add_mapping_pytest(thumb_combo_policy 60 "ROS_LOG_DIR=/tmp/yhand_combo_test_ros")
@@ -33,3 +34,4 @@ add_mapping_pytest(thumb_coordination_mlp 30 "ROS_LOG_DIR=/tmp/yhand_thumb_coord
 add_mapping_pytest(left_thumb_motor_to_q_estimator 30)
 add_mapping_pytest(left_hand_motor_to_q_estimator 30)
 add_mapping_pytest(motor_to_q_logging 30 "MPLCONFIGDIR=/tmp/yhand_inverse_logging_tests")
+add_mapping_pytest(motor_to_q_mlp 60 "MPLCONFIGDIR=/tmp/yhand_inverse_mlp_tests")

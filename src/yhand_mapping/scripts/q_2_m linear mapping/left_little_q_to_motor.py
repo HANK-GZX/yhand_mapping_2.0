@@ -87,6 +87,12 @@ class FingerMapper:
                     raise ValueError('输入尺度必须大于0')
                 coefficients = finite_values(fit['coefficients'], terms, '模型系数')
                 self.fits[(mid, name)] = (center, scale, coefficients)
+        self.coordination = None
+        if 'thumb_linear_coordination' in self.config:
+            if finger != 'thumb':
+                raise ValueError('thumb_linear_coordination只适用于拇指')
+            from thumb_linear_coordination import ThumbLinearCoordination
+            self.coordination = ThumbLinearCoordination(self.config['thumb_linear_coordination'])
 
     def effective_models(self, model='linear'):
         """Resolve per-motor policies; thumb always uses its reviewed mixed model."""
@@ -95,9 +101,10 @@ class FingerMapper:
         return {mid:self.control_models.get(mid, model) for mid in self.motor_ids}
 
     def effective_degrees(self, model='linear'):
-        return {str(mid):self.config['motors'][str(mid)]['fits'][name].get(
+        degrees = {str(mid):self.config['motors'][str(mid)]['fits'][name].get(
             'effective_degree', self.config['motors'][str(mid)]['fits'][name]['degree'])
                 for mid,name in self.effective_models(model).items()}
+        return degrees
 
     def predict(self, q, *, relative=True, model='linear'):
         """Return a position for each selected finger motor, keyed by M<number>.
@@ -111,6 +118,12 @@ class FingerMapper:
         angles = finite_values(q, 4, 'q')
         if not relative:
             angles = [value - offset for value, offset in zip(angles, self.q_reference)]
+        result = self._evaluate(angles, models)
+        if self.coordination is not None:
+            result = self.coordination.apply(angles, result, lambda q: self._evaluate(q, models))
+        return result
+
+    def _evaluate(self, angles, models):
         result = {}
         try:
             for mid, indices in self.motor_inputs.items():

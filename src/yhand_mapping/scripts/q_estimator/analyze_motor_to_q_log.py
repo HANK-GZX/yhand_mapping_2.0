@@ -244,7 +244,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('log_dir', type=Path, nargs='?')
     parser.add_argument('--teleop-log', type=Path, help='历史遥操日志：用实际反馈离线重算估计')
-    parser.add_argument('--model', choices=['linear', 'quadratic', 'auto'], default='linear')
+    parser.add_argument('--model', choices=['linear', 'quadratic', 'auto', 'mlp'], default='linear')
     parser.add_argument('--model-dir', type=Path, default=PACKAGE/'config')
     parser.add_argument('--output-dir', type=Path)
     args = parser.parse_args(argv)
