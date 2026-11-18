@@ -2,6 +2,7 @@
 """Stop current, set SDK motor zeros on Ctrl+C, verify feedback, then exit."""
 
 import argparse
+import json
 import math
 import os
 import signal
@@ -15,6 +16,7 @@ from rclpy.context import Context
 from rclpy.duration import Duration
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 
 
@@ -23,6 +25,8 @@ from rclpy.signals import SignalHandlerOptions
 ZERO_TIMEOUT = 90.0
 ZERO_TOLERANCE = 1.0  # Motor position feedback is in degrees.
 ZERO_CONFIRMATIONS = 3
+# Same 28-channel maximum current (A) as devices_pkg/launch/yhand_launch.py.
+DEFAULT_MAX_CURRENT_LIMIT = [0.5] * 28
 
 
 class MotorFeedback:
@@ -161,7 +165,8 @@ def run(args, stop_requested, zero_requested):
         executor.add_node(node)
         publisher = node.create_publisher(YHandMsg, args.cmd_topic, 10)
         feedback = MotorFeedback()
-        subscription = node.create_subscription(YHandMsg, args.feedback_topic, feedback.receive, 1)
+        subscription = node.create_subscription(
+            YHandMsg, args.feedback_topic, feedback.receive, qos_profile_sensor_data)
         command = motor_command(args.torque)
         if stop_requested.is_set():
             return 0
@@ -169,7 +174,8 @@ def run(args, stop_requested, zero_requested):
         # sends zeros first and explicitly shuts down the driver afterwards.
         driver = subprocess.Popen(
             [args.driver_executable, args.driver_node_name, args.feedback_topic,
-             args.cmd_topic, args.dev_config],
+             args.cmd_topic, args.dev_config, '--ros-args', '-p',
+             'max_current_limit:=' + json.dumps(args.max_current_limit)],
             start_new_session=True,
         )
         node.get_logger().info(
@@ -212,10 +218,15 @@ def main():
     parser.add_argument('--cmd-topic', required=True)
     parser.add_argument('--feedback-topic', required=True)
     parser.add_argument('--dev-config', required=True)
+    parser.add_argument('--max-current-limit', type=float, nargs=28,
+                        default=DEFAULT_MAX_CURRENT_LIMIT,
+                        help='28 motor current limits in A; default: 0.5 each (SDK launch defaults)')
     parser.add_argument('--torque', type=float, default=-0.05)
     parser.add_argument('--zero-timeout', type=float, default=ZERO_TIMEOUT)
     parser.add_argument('--zero-tolerance', type=float, default=ZERO_TOLERANCE)
     args = parser.parse_args()
+    if any(not math.isfinite(value) or value <= 0 for value in args.max_current_limit):
+        parser.error('--max-current-limit must contain 28 finite positive values')
     if not math.isfinite(args.zero_timeout) or args.zero_timeout <= 0:
         parser.error('--zero-timeout must be finite and positive')
     if not math.isfinite(args.zero_tolerance) or args.zero_tolerance <= 0:

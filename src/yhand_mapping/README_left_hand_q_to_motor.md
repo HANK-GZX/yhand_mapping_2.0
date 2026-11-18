@@ -4,6 +4,11 @@
 
 当前统一入口只提供 `linear` 与 `mlp` 两种模式。
 
+首次启动 Manus 手套发布节点前，Ubuntu 环境需要安装 `python3-zmq`。
+如果启动时报 `No module named 'zmq'`，可运行 `sudo apt install python3-zmq`，
+再用 `python3 -c "import zmq; print(zmq.__version__)"` 确认启动用的 Python 能导入。
+如果已有 Manus 发布节点，可用 `start_glove_node:=false` 复用该节点。
+
 ## 指令发送频率
 
 默认`publish_hz:=50`。需要以100Hz为目标发送电机指令时，启动参数中添加`publish_hz:=100`：
@@ -96,9 +101,11 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
   finger:=five input_mode:=2 model:=linear thumb_version:=default
 ```
 
-`thumb_version`只选择拇指策略，`v3`仅适用于`finger:=thumb/five model:=linear`，不能与`model_file`同时指定。五指MLP继续使用原命令和模型。metadata及干运行输出的`thumb_version`标记实际采用的策略；v3日志另外固定五份模型快照与SHA256。
+`thumb_version`只选择拇指策略。`v3`和`v4`适用于`finger:=thumb/five model:=linear`，均与`model_file`互斥。metadata及干运行输出的`thumb_version`标记实际采用的策略。两种候选都记录模型快照和SHA256。
 
-拇指当前侧摆／对掌候选为`config/experiments/left_thumb_linear_coordination_v3.json`，使用`model:=linear`和单指`model_file`加载。M8/M27恢复原完整四角补偿，保留原1.10倍q0相关项；不再使用q0单变量锚点或10～30°弯曲切换。M14保留q1主通道，其余耦合仍为25%。当前仅保留默认linear与v3两个可选版本。
+`thumb_version:=v4` 用 12 个采集组合的组内变化合成一套四角到六电机的一次矩阵，M14 沿用 V3 的启动柔化。五指命令可将上面的 `thumb_version:=v3` 换成 `thumb_version:=v4`。[V4 拟合与启动说明](README_left_thumb_linear_v4.md)
+
+V3 配置为`config/experiments/left_thumb_linear_coordination_v3.json`，也可使用`model:=linear`和单指`model_file`加载。M8/M27采用完整四角补偿，q0相关项为1.10倍。M14保留q1主通道，其余耦合为25%。
 
 M14启动与运行分开：首次启用从最新反馈位置起步；目标相对初始反馈偏移达到10**电机度**后计时，先以120电机°/s、480电机°/s²柔化1秒，再用1秒平滑交接到实时目标，之后直接跟随。小于触发量的输入仍有响应，不是角度死区；每帧计时最多累计50ms，延迟不跳过柔化。交接阶段逐步解除速度／加速度约束，不再保证120/480上限。退出位控清除启动状态，停机零电流直接执行。这些是试验参数，不是物理电机上限。
 

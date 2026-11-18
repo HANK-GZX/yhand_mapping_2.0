@@ -28,6 +28,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from joint_coupling import DEFAULT_REFERENCE, JointCouplingError, JointCouplingReference
 
 THUMB_V3_MODEL_PATH = PACKAGE_DIR/'config/experiments/left_thumb_linear_coordination_v3.json'
+THUMB_V4_MODEL_PATH = PACKAGE_DIR/'config/experiments/left_thumb_linear_v4.json'
+THUMB_VERSION_PATHS = {'v3': THUMB_V3_MODEL_PATH, 'v4': THUMB_V4_MODEL_PATH}
 MOTOR_IDS = (11, 13, 18, 20)
 MOTOR_COUNT = 28
 CONTROL_MODELS = ('linear','mlp')
@@ -148,13 +150,13 @@ class FiveFingerMapper(BothFingerMapper):
 
 
 def validate_thumb_version(finger, model, version, model_path=None):
-    if version not in ('default', 'v3'):
-        raise ValueError('thumb_version必须为default或v3')
-    if version == 'v3':
+    if version != 'default':
+        if version not in THUMB_VERSION_PATHS:
+            raise ValueError('thumb_version必须为default、v3或v4')
         if finger not in ('thumb', 'five') or model != 'linear':
-            raise ValueError('thumb_version v3仅适用于thumb/five的linear模式')
+            raise ValueError(f'thumb_version {version}仅适用于thumb/five的linear模式')
         if model_path is not None:
-            raise ValueError('thumb_version v3不能与model_file同时指定')
+            raise ValueError(f'thumb_version {version}不能与model_file同时指定')
 
 
 def create_mapper(finger,model_path=None, *, model='linear', model_dir=None,
@@ -169,8 +171,8 @@ def create_mapper(finger,model_path=None, *, model='linear', model_dir=None,
         return {'both':BothFingerMapper,'three':ThreeFingerMapper,'four':FourFingerMapper,
                 'five':FiveFingerMapper}[finger](model=model, model_dir=model_dir,
                                                 thumb_version=thumb_version)
-    if thumb_version == 'v3':
-        model_path = THUMB_V3_MODEL_PATH
+    if thumb_version in THUMB_VERSION_PATHS:
+        model_path = THUMB_VERSION_PATHS[thumb_version]
     if model == 'mlp':
         sys.path.insert(0, str(SCRIPT_DIR/'q_2_m MLP mapping'))
         from mlp_q_to_motor import MLPFingerMapper as Mapper
@@ -184,6 +186,8 @@ def create_mapper(finger,model_path=None, *, model='linear', model_dir=None,
 def selected_thumb_version(mapper):
     for child in getattr(mapper, 'mappers', (mapper,)):
         if child.finger == 'thumb':
+            if child.config.get('thumb_version') == 'v4':
+                return 'v4'
             return 'v3' if child.config.get('thumb_linear_coordination') else 'default'
     return None
 
@@ -702,7 +706,9 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None, coupling=None
         executor.add_node(node)
         publisher = node.create_publisher(YHandMsg,args.cmd_topic,10)
         telemetry_publisher = node.create_publisher(String,metadata['q_command_state_topic'],10)
-        node.create_subscription(YHandMsg,args.feedback_topic,feedback_cb,1)
+        # SDK publishes with SensorDataQoS (BEST_EFFORT); reliable subscribers
+        # cannot match it. This also accepts older reliable feedback publishers.
+        node.create_subscription(YHandMsg,args.feedback_topic,feedback_cb,qos_profile_sensor_data)
         if measurement_enabled:
             node.create_subscription(Float64MultiArray,args.glove_topic,glove_cb,1)
         if args.input_mode=='manus':
@@ -734,7 +740,8 @@ def run(args,mapper,defaults,initial_target, *, thumb_policy=None, coupling=None
                 executable = args.driver_executable
             config = json.loads(args.device_config.read_text())
             driver = subprocess.Popen([str(executable),f'y_hand_left_{finger}_mapping_test_node',
-                                       args.feedback_topic,args.cmd_topic,device_yaml(config)],
+                                       args.feedback_topic,args.cmd_topic,device_yaml(config),
+                                       '--ros-args','-p','max_current_limit:='+json.dumps([0.5]*MOTOR_COUNT)],
                                       start_new_session=True)
 
         deadline = time.monotonic()+args.ready_timeout
@@ -1032,8 +1039,8 @@ def main(argv=None):
     parser.add_argument('--model',choices=CONTROL_MODELS,default='linear',
                         help='linear使用原标定策略；mlp使用训练的神经网络')
     parser.add_argument('--model-file',type=Path,help='默认按所选手指加载对应模型')
-    parser.add_argument('--thumb-version',choices=['default','v3'],default='default',
-                        help='thumb/five的linear模式可选v3；默认保留原模型')
+    parser.add_argument('--thumb-version',choices=['default','v3','v4'],default='default',
+                        help='thumb/five的linear映射：default、v3或v4（组合合成一次模型）')
     parser.add_argument('--mlp-model-dir',type=Path,help='MLP模型目录；默认config/q_to_motor_mlp')
     parser.add_argument('--thumb-combo-calibration',type=Path,
                         help='可选拇指实测combo路径；仅thumb/five，协调M4/M14/侧摆与被动伸肌')
@@ -1079,6 +1086,8 @@ def main(argv=None):
             missing = set(getattr(mapper,'fingers',(mapper.finger,))) - coupling.clouds.keys()
             if missing:
                 raise ValueError(f'耦合参考缺少手指数据：{sorted(missing)}')
+        if args.thumb_combo_calibration and selected_thumb_version(mapper) == 'v4':
+            raise ValueError('v4不能与实测thumb combo路径同时启用')
         thumb_policy = load_thumb_combo_policy(args.thumb_combo_calibration,args.finger)
         motion_limits = mapper_motion_limits(mapper)
         trajectory = MotorTrajectoryLimiter(motion_limits) if motion_limits else None

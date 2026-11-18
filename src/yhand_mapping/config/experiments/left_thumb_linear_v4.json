@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "hand": "left",
+  "finger": "thumb",
+  "thumb_version": "v4",
+  "q_units": "degrees",
+  "motor_position_units": "degrees",
+  "motor_order": [
+    4,
+    6,
+    7,
+    8,
+    14,
+    27
+  ],
+  "default_model": "linear",
+  "q_reference": [
+    8.491,
+    38.262,
+    26.028,
+    -26.219
+  ],
+  "q_reference_source": "Same archived glove startup reference as V3; not an exact physical zero.",
+  "output_alignment": "m_target = B @ delta_q; zero when delta_q is zero.",
+  "side_motor_mapping": "One affine matrix for all combos, with q0 side direction and q1 payout.",
+  "model_policy": "Six first-degree outputs; no combo selection at runtime.",
+  "training_method": "Constrained per-combo fits, then constrained least squares on their fitted changes about each combo center. Each combo has equal total weight.",
+  "task_constraints": "M4 q2/q3 <= 0; M6/M7 q2/q3 >= 0; M8 q0 >= 0; M27 q0 <= 0; M4 q1 >= 0; M6/M7/M8/M27 q1 <= 0; M14 q1 >= abs(any other slope).",
+  "training_points": 8149,
+  "training_timeouts": 3126,
+  "combo_counts": {
+    "thumb_ext_long_in_opp_off": 750,
+    "thumb_ext_long_in_opp_on": 783,
+    "thumb_ext_long_out_opp_off": 606,
+    "thumb_ext_long_out_opp_on": 635,
+    "thumb_ext_short_in_opp_off": 764,
+    "thumb_ext_short_in_opp_on": 361,
+    "thumb_ext_short_out_opp_off": 630,
+    "thumb_ext_short_out_opp_on": 871,
+    "thumb_flex_long_in_opp_off": 644,
+    "thumb_flex_long_in_opp_on": 656,
+    "thumb_flex_long_out_opp_off": 562,
+    "thumb_flex_long_out_opp_on": 887
+  },
+  "source_sha256": {
+    "cache_sha256": "d88207b2fd26935e2343938e610e38fa027cc7732a2c4d892f7aa08f4264ad23",
+    "point_log_sha256": "09c11063519716bd38c0b7ce7d35393dd78e4e58d9d6c4be0b0c902e490552d1"
+  },
+  "v3_source_sha256": "ef0db4f656facebdc4d4c1c4afbbaf38c164cecac33ffedb75574596ea9e2366",
+  "q_relative_training_bounds": {
+    "q0": [
+      -10.800933333333333,
+      16.223633333333332
+    ],
+    "q1": [
+      -35.9232,
+      -6.603633333333331
+    ],
+    "q2": [
+      -26.067933333333333,
+      26.719933333333323
+    ],
+    "q3": [
+      5.18470000000001,
+      93.84713333333335
+    ]
+  },
+  "teleop_motion_limits": {
+    "14": {
+      "max_velocity_deg_sec": 120.0,
+      "max_acceleration_deg_sec2": 480.0,
+      "mode": "startup_only",
+      "startup_duration_sec": 1.0,
+      "handoff_duration_sec": 1.0,
+      "activation_threshold_deg": 10.0
+    }
+  },
+  "validation_note": "Archival feedback prediction, not robot joint tracking. Saved V3 trained on this batch. Blocked scores with a measured anchor do not validate the runtime startup zero.",
+  "validation": {
+    "within_combo_blocked_5fold": {
+      "fused_absolute": {
+        "each_motor": {
+          "4": {
+            "mae_motor_deg": 3.107335747410793,
+            "p95_motor_deg": 7.766638149482811,
+            "r2": 0.9955854157160796
+          },
+          "6": {
+            "mae_motor_deg": 12.672818826420526,
+            "p95_motor_deg": 29.722028310922624,
+            "r2": 0.6107828257631195
+          },
+          "7": {
+            "mae_motor_deg": 4.877912453741117,
+            "p95_motor_deg": 12.330927909614537,
+            "r2": 0.987199854665476
+          },
+          "8": {
+            "mae_motor_deg": 3.101118823240312,
+            "p95_motor_deg": 7.494052927983506,
+            "r2": 0.9730415627665215
+          },
+          "14": {
+            "mae_motor_deg": 10.515551822886401,
+            "p95_motor_deg": 23.545136026460266,
+            "r2": 0.8125800088915865
+          },
+          "27": {
+            "mae_motor_deg": 4.60485342393606,
+            "p95_motor_deg": 12.044081120676015,
+            "r2": 0.9158001235374923
+          }
+        },
+        "recorded_position_motors": {
+          "mae_motor_deg": 7.1348200587679464,
+          "p95_motor_deg": 22.454968473905684,
+          "r2": 0.978486230235926
+        }
+      },
+      "fused_anchored": {
+        "each_motor": {
+          "4": {
+            "mae_motor_deg": 3.926995239504407,
+            "p95_motor_deg": 9.385600250226998,
+            "r2": 0.9930278268727201
+          },
+          "6": {
+            "mae_motor_deg": 8.22826834433536,
+            "p95_motor_deg": 19.887398692146043,
+            "r2": 0.8310950895425104
+          },
+          "7": {
+            "mae_motor_deg": 6.020838368235098,
+            "p95_motor_deg": 14.31036054125647,
+            "r2": 0.9813541057196227
+          },
+          "8": {
+            "mae_motor_deg": 2.821017882150966,
+            "p95_motor_deg": 7.216497381730436,
+            "r2": 0.9769533166977099
+          },
+          "14": {
+            "mae_motor_deg": 11.996228262143445,
+            "p95_motor_deg": 29.131651037290784,
+            "r2": 0.7378455679405402
+          },
+          "27": {
+            "mae_motor_deg": 4.299865848415845,
+            "p95_motor_deg": 11.274381690562901,
+            "r2": 0.9272583262200045
+          }
+        },
+        "recorded_position_motors": {
+          "mae_motor_deg": 7.511816841362844,
+          "p95_motor_deg": 22.995815699595553,
+          "r2": 0.9765079559631022
+        }
+      },
+      "v3_saved_config_anchored": {
+        "each_motor": {
+          "4": {
+            "mae_motor_deg": 3.933177482007863,
+            "p95_motor_deg": 9.35996843501401,
+            "r2": 0.9930319027813777
+          },
+          "6": {
+            "mae_motor_deg": 6.447203822722476,
+            "p95_motor_deg": 18.06637590285876,
+            "r2": 0.8822727814694019
+          },
+          "7": {
+            "mae_motor_deg": 6.125836470674933,
+            "p95_motor_deg": 14.990141546327829,
+            "r2": 0.9804636652246821
+          },
+          "8": {
+            "mae_motor_deg": 2.6157845632645036,
+            "p95_motor_deg": 6.492037242442937,
+            "r2": 0.9804749017229814
+          },
+          "14": {
+            "mae_motor_deg": 16.050088192504557,
+            "p95_motor_deg": 43.02239409267518,
+            "r2": 0.49545363272328746
+          },
+          "27": {
+            "mae_motor_deg": 2.4796908117401157,
+            "p95_motor_deg": 6.298466891727107,
+            "r2": 0.9759128426779887
+          }
+        },
+        "recorded_position_motors": {
+          "mae_motor_deg": 8.519735556493695,
+          "p95_motor_deg": 29.504765530805514,
+          "r2": 0.9623949077860741
+        }
+      }
+    },
+    "leave_one_combo_out": {
+      "fused_absolute": {
+        "each_motor": {
+          "4": {
+            "mae_motor_deg": 3.1352562531851533,
+            "p95_motor_deg": 7.86483032864397,
+            "r2": 0.9954498129344217
+          },
+          "6": {
+            "mae_motor_deg": 14.030026867122658,
+            "p95_motor_deg": 32.96621875638334,
+            "r2": 0.5256135429577422
+          },
+          "7": {
+            "mae_motor_deg": 5.042537102526786,
+            "p95_motor_deg": 12.556471834091365,
+            "r2": 0.9864813665739472
+          },
+          "8": {
+            "mae_motor_deg": 3.483961090153967,
+            "p95_motor_deg": 8.403123090247112,
+            "r2": 0.9650244837247628
+          },
+          "14": {
+            "mae_motor_deg": 11.202763457412486,
+            "p95_motor_deg": 25.11648023378819,
+            "r2": 0.787631093416042
+          },
+          "27": {
+            "mae_motor_deg": 5.210679566292683,
+            "p95_motor_deg": 13.987974398808015,
+            "r2": 0.8898983438515075
+          }
+        },
+        "recorded_position_motors": {
+          "mae_motor_deg": 7.60180978539421,
+          "p95_motor_deg": 24.17153431306757,
+          "r2": 0.9754706724749067
+        }
+      }
+    }
+  },
+  "motors": {
+    "4": {
+      "role": "flex_long",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.0674293692470314,
+            2.202947032938362,
+            -1.4212436687647423,
+            -1.7094161870057514
+          ]
+        }
+      }
+    },
+    "6": {
+      "role": "ext_short",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            2.1003120962159896,
+            -3.7587426910203914,
+            2.007416944430648,
+            0.0
+          ]
+        }
+      }
+    },
+    "7": {
+      "role": "ext_long",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.3150266356308031,
+            -4.384964146546247,
+            2.47223509988518,
+            1.0877392930299876
+          ]
+        }
+      }
+    },
+    "8": {
+      "role": "adduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            3.614452683040369,
+            -1.6059530743199375,
+            0.8726155281922701,
+            0.26348595332258024
+          ]
+        }
+      }
+    },
+    "14": {
+      "role": "opposition",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            1.744390597800934,
+            6.185245843016643,
+            -0.03679415187158397,
+            0.28443134947577886
+          ]
+        }
+      }
+    },
+    "27": {
+      "role": "abduction",
+      "input_q_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "control_model": "linear",
+      "fits": {
+        "linear": {
+          "degree": 1,
+          "input_center": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "input_scale": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "coefficients": [
+            0.0,
+            -2.6015927927893547,
+            -1.757296915621615,
+            0.38745661011238636,
+            -0.5559224416168368
+          ]
+        }
+      }
+    }
+  }
+}

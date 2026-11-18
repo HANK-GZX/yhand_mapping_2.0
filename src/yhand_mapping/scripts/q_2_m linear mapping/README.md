@@ -6,7 +6,7 @@
 - `thumb_linear_coordination.py`：v3完整四角侧摆／q1对掌协调。
 - `motor_trajectory.py`：候选的首次运动启动柔化与持续轨迹约束，默认模型不启用。
 
-目录整理保留现有模型选择，拇指仍使用分电机的一次／二次混合模型。
+拇指默认使用分电机的一次／二次混合模型，并支持 V3、V4 两个可选版本。
 模型保留在 `config/`，共享输入脚本、默认参数和日志保留在 `scripts/`。
 
 同一控制入口添加 `model:=mlp` 可切换为[五指独立 MLP](<../q_2_m MLP mapping/README.md>)。
@@ -33,3 +33,8 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_t
 
 详细说明见[遥操控制](../../README_left_hand_q_to_motor.md)
 与[模型计算](../../README_left_hand_q_to_motor_models.md)。
+
+## 拇指 V4
+
+`thumb_version:=v4` 使用一套 6×4 一次矩阵连续映射四角。拟合过程、验证指标和复现命令见
+[左拇指 V4](../../README_left_thumb_linear_v4.md)。

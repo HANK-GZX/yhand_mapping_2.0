@@ -23,6 +23,7 @@ def record(event, **values):
 def fake_driver():
     import rclpy
     from devices_pkg.msg import YHandMsg
+    from rclpy.qos import qos_profile_sensor_data
     from rclpy.signals import SignalHandlerOptions
 
     stopping = False
@@ -35,9 +36,14 @@ def fake_driver():
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, on_signal)
-    rclpy.init(args=[], signal_handler_options=SignalHandlerOptions.NO)
+    # Exercise the real ROS parameter parser; the SDK now requires this array.
+    rclpy.init(args=sys.argv[5:], signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node('fake_pretighten_driver')
-    publisher = node.create_publisher(YHandMsg, sys.argv[2], 10)
+    node.declare_parameter('max_current_limit', [0.0] * 28)
+    limits = list(node.get_parameter('max_current_limit').value)
+    if limits != [0.5] * 28:
+        raise ValueError(f'Expected SDK current limits, got {limits}')
+    publisher = node.create_publisher(YHandMsg, sys.argv[2], qos_profile_sensor_data)
     positions = [float(i * 2) for i in range(1, 29)]
     zeroed = False
     mode = os.environ.get('PRETIGHTEN_TEST_ZERO_MODE', 'success')
@@ -74,7 +80,7 @@ def fake_driver():
         publisher.publish(response)
         record('feedback', zeroed=zeroed)
 
-    node.create_subscription(YHandMsg, sys.argv[3], command, 10)
+    node.create_subscription(YHandMsg, sys.argv[3], command, qos_profile_sensor_data)
     record('ready', pid=os.getpid(), controller_pid=os.getppid(), pgid=os.getpgrp())
     try:
         while not stopping:

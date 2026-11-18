@@ -41,6 +41,7 @@ def operator_angles(finger):
 
 def fake_sdk():
     import rclpy
+    from rclpy.qos import qos_profile_sensor_data
     from rclpy.signals import SignalHandlerOptions
     from devices_pkg.msg import YHandMsg
     from std_msgs.msg import Float64MultiArray
@@ -57,9 +58,15 @@ def fake_sdk():
 
     for signum in (signal.SIGINT,signal.SIGTERM):
         signal.signal(signum,on_signal)
-    rclpy.init(args=[],signal_handler_options=SignalHandlerOptions.NO)
+    # Parse the child driver's actual ROS arguments, so missing SDK limits fail here too.
+    rclpy.init(args=sys.argv[5:],signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node(sys.argv[1])
-    pub = node.create_publisher(YHandMsg,sys.argv[2],10)
+    node.declare_parameter('max_current_limit', [0.0]*28)
+    limits = list(node.get_parameter('max_current_limit').value)
+    if limits != [0.5]*28:
+        raise ValueError(f'Expected 28 SDK current limits of 0.5 A, got {limits}')
+    # Match the real Y_Hand_Node's BEST_EFFORT feedback and command subscription.
+    pub = node.create_publisher(YHandMsg,sys.argv[2],qos_profile_sensor_data)
     glove_pub = node.create_publisher(Float64MultiArray,os.environ['LITTLE_TEST_GLOVE_TOPIC'],10)
     raw_pub = node.create_publisher(Float64MultiArray,os.environ['LITTLE_TEST_RAW_TOPIC'],10)
     target_pub = node.create_publisher(Float64MultiArray,os.environ['LITTLE_TEST_TARGET_TOPIC'],10)
@@ -136,7 +143,7 @@ def fake_sdk():
             if pose_frames >= (12 if mode=='coupling_topic' else 5):
                 os.kill(os.getppid(),signal.SIGTERM)
 
-    node.create_subscription(YHandMsg,sys.argv[3],command,10)
+    node.create_subscription(YHandMsg,sys.argv[3],command,qos_profile_sensor_data)
     record('ready')
     try:
         while not stopping:
@@ -818,7 +825,7 @@ class LaunchWiringTests(unittest.TestCase):
         environment.start()
         cls.addClassCleanup(environment.stop)
 
-    def test_five_thumb_v3_selector_and_default_are_both_available(self):
+    def test_five_thumb_version_is_forwarded(self):
         from launch import LaunchContext
         from launch.actions import DeclareLaunchArgument, ExecuteProcess
         from launch.utilities import perform_substitutions
@@ -828,7 +835,7 @@ class LaunchWiringTests(unittest.TestCase):
         spec.loader.exec_module(module)
         option = next(a for a in module.generate_launch_description().entities
                       if isinstance(a, DeclareLaunchArgument) and a.name == 'thumb_version')
-        self.assertEqual(set(option.choices), {'default', 'v3'})
+        self.assertEqual(set(option.choices), {'default', 'v3', 'v4'})
         context = LaunchContext()
         context.launch_configurations.update(finger='five', input_mode='2', relative='true',
             model='linear', thumb_version='v3', start_driver_node='false', start_glove_node='false',
@@ -838,13 +845,19 @@ class LaunchWiringTests(unittest.TestCase):
         def command():
             action = next(a for a in module._launch_setup(context) if isinstance(a, ExecuteProcess))
             return [perform_substitutions(context, part) for part in action.cmd]
-        selected = command()
-        self.assertEqual(selected[selected.index('--thumb-version')+1], 'v3')
-        self.assertNotIn('--model-file', selected)
+        for version in ('v3', 'v4'):
+            with self.subTest(version=version):
+                context.launch_configurations['thumb_version'] = version
+                selected = command()
+                self.assertEqual(selected[selected.index('--thumb-version')+1], version)
+                self.assertNotIn('--model-file', selected)
         context.launch_configurations['thumb_version'] = 'default'
         self.assertNotIn('--thumb-version', command())
-        context.launch_configurations.update(thumb_version='v3', model='mlp')
+        context.launch_configurations.update(thumb_version='v4', model='mlp')
         with self.assertRaises(ValueError):
+            command()
+        context.launch_configurations.update(model='linear', thumb_combo_calibration='/tmp/path.json')
+        with self.assertRaisesRegex(ValueError, 'v4不能与实测thumb combo路径同时启用'):
             command()
 
     def test_single_finger_candidate_model_is_forwarded_and_multifinger_rejected(self):

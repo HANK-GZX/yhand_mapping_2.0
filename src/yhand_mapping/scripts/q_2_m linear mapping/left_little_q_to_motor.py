@@ -76,6 +76,9 @@ class FingerMapper:
             if target['input_q_indices'] != indices:
                 raise ValueError(f'M{mid}输入角度与要求不一致')
             for name, degree in [('linear', 1), ('quadratic', 2)]:
+                # A fixed per-motor policy can omit the unused polynomial.
+                if selected is not None and name != selected and name not in target['fits']:
+                    continue
                 fit = target['fits'][name]
                 count = len(indices)
                 terms = 1 + count + (count * (count + 1) // 2 if degree == 2 else 0)
@@ -95,7 +98,7 @@ class FingerMapper:
             self.coordination = ThumbLinearCoordination(self.config['thumb_linear_coordination'])
 
     def effective_models(self, model='linear'):
-        """Resolve per-motor policies; thumb always uses its reviewed mixed model."""
+        """Resolve per-motor model choices from the loaded policy."""
         if model not in ('linear', 'quadratic'):
             raise ValueError('model必须为linear或quadratic')
         return {mid:self.control_models.get(mid, model) for mid in self.motor_ids}
@@ -111,8 +114,8 @@ class FingerMapper:
 
         By default q is relative [q0,q1,q2,q3], with the neutral pose at zero.
         Set relative=False explicitly for original glove angles.
-        Results use the model's output alignment, without clipping. Thumb uses a
-        fixed per-motor mixture, expanded as f(q_reference+delta_q)-f(q_reference).
+        Results use the model's output alignment, without clipping. Thumb
+        models are expanded as f(q_reference+delta_q)-f(q_reference).
         """
         models = self.effective_models(model)
         angles = finite_values(q, 4, 'q')

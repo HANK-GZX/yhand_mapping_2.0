@@ -12,6 +12,9 @@ from launch.events.process import SignalProcess
 from launch.substitutions import LaunchConfiguration
 
 
+THUMB_VERSIONS = ('default', 'v3', 'v4')
+
+
 def _enabled(value):
     if value.lower() not in ('true','false'):
         raise ValueError(f'Expected true/false, got {value!r}')
@@ -58,13 +61,13 @@ def _launch_setup(context):
                '--publish-hz',value('publish_hz')]
     model_file = LaunchConfiguration('model_file', default='').perform(context).strip()
     thumb_version = LaunchConfiguration('thumb_version', default='default').perform(context).strip()
-    if thumb_version not in ('default', 'v3'):
-        raise ValueError('thumb_version必须为default或v3')
-    if thumb_version == 'v3':
+    if thumb_version not in THUMB_VERSIONS:
+        raise ValueError('thumb_version必须为default、v3或v4')
+    if thumb_version != 'default':
         if finger not in ('thumb', 'five') or model != 'linear':
-            raise ValueError('thumb_version v3仅适用于thumb/five的linear模式')
+            raise ValueError(f'thumb_version {thumb_version}仅适用于thumb/five的linear模式')
         if model_file:
-            raise ValueError('thumb_version v3不能与model_file同时指定')
+            raise ValueError(f'thumb_version {thumb_version}不能与model_file同时指定')
         command += ['--thumb-version', thumb_version]
     if model_file:
         if finger in ('both','three','four','five'):
@@ -77,6 +80,8 @@ def _launch_setup(context):
     if combo_path:
         if finger not in ('thumb', 'five'):
             raise ValueError('thumb_combo_calibration仅适用于thumb/five')
+        if thumb_version == 'v4':
+            raise ValueError('v4不能与实测thumb combo路径同时启用')
         command += ['--thumb-combo-calibration', combo_path]
     if value('current').strip():
         command += ['--current',value('current')]
@@ -142,8 +147,8 @@ def generate_launch_description():
                               description='linear: existing calibration policy; mlp: trained neural networks'),
         DeclareLaunchArgument('model_file',default_value='',
                               description='Optional model JSON for a single finger; empty uses the default model'),
-        DeclareLaunchArgument('thumb_version',default_value='default',choices=['default','v3'],
-                              description='Thumb policy in linear thumb/five mode; default keeps original mapping'),
+        DeclareLaunchArgument('thumb_version',default_value='default',choices=list(THUMB_VERSIONS),
+                              description='Thumb policy: default, v3 or v4 (linear fit from the twelve combos)'),
         DeclareLaunchArgument('mlp_model_dir',default_value='',
                               description='Optional MLP JSON directory; defaults to config/q_to_motor_mlp'),
         DeclareLaunchArgument('thumb_combo_calibration',default_value='',

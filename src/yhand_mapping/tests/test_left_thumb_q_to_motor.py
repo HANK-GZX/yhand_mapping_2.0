@@ -22,6 +22,29 @@ MOTION_LIMITS = {'14': dict(max_velocity_deg_sec=120., max_acceleration_deg_sec2
 V3_MODEL = PACKAGE/'config/experiments/left_thumb_linear_coordination_v3.json'
 
 
+class ThumbV4Tests(unittest.TestCase):
+    def test_five_cli_uses_one_linear_thumb_matrix_and_keeps_other_fingers(self):
+        q = [5., -5., 10., 15.]*5
+        command = [sys.executable, str(PACKAGE/'scripts/q_2_m linear mapping/left_little_q_to_motor_test.py'),
+                   '--finger', 'five', '--model', 'linear', '--thumb-version', 'v4',
+                   '--manual-coupling', 'off', '--dry-run', '--q', *map(str, q)]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        self.assertEqual(data['thumb_version'], 'v4')
+        self.assertEqual(set(data['motor_trajectory_limits']), {'14'})
+        old = control.create_mapper('five').predict(q)
+        thumb = control.create_mapper('thumb', thumb_version='v4')
+        self.assertEqual(set(thumb.predict([0.]*4).values()), {0.})
+        for mid in thumb.motor_ids:
+            self.assertEqual(data['model_effective_degrees'][str(mid)], 1)
+        self.assertEqual(data['motor_predictions'], old | thumb.predict(q[:4]))
+        oppose = thumb.predict([0., -1., 0., 0.])
+        self.assertLess(oppose['M14'], 0.)
+        self.assertLessEqual(oppose['M4'], 0.)
+        for mid in (6, 7, 8, 27):
+            self.assertGreaterEqual(oppose[f'M{mid}'], 0.)
+
+
 class ThumbFullCompensationTests(unittest.TestCase):
     def setUp(self):
         self.mapper = control.create_mapper('thumb', V3_MODEL)
@@ -245,8 +268,11 @@ class FakeSDKThumbCoordinationTests(unittest.TestCase):
     def test_five_v3_controls_24_motors_and_preserves_four_finger_outputs(self):
         self.exercise('five')
 
-    def exercise(self, finger):
-        config = json.loads(V3_MODEL.read_text())
+    def test_v4_follows_manus_and_hands_over_m14(self):
+        self.exercise('thumb', version='v4')
+
+    def exercise(self, finger, version='v3'):
+        config = json.loads(control.THUMB_VERSION_PATHS[version].read_text())
         long_frames = 180
         try:
             from devices_pkg.msg import YHandMsg
@@ -275,7 +301,8 @@ class FakeSDKThumbCoordinationTests(unittest.TestCase):
                        '--manus-topic', topic+'/glove', '--manus-raw-topic', topic+'/raw',
                        '--manus-zero-seconds', '.1', '--ready-timeout', '5',
                        '--output-dir', str(root/'output')]
-            command += ['--thumb-version', 'v3'] if finger == 'five' else ['--model-file', str(model)]
+            command += (['--model-file', str(model)] if finger == 'thumb' and version == 'v3'
+                        else ['--thumb-version', version])
             process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                        text=True, start_new_session=True)
             try:
@@ -290,11 +317,11 @@ class FakeSDKThumbCoordinationTests(unittest.TestCase):
                         process.communicate()
             self.assertEqual(process.returncode, 0, stdout+'\n'+stderr)
             metadata = json.loads((root/'output/metadata.json').read_text())
-            self.assertEqual(metadata['thumb_version'], 'v3')
+            self.assertEqual(metadata['thumb_version'], version)
             self.assertEqual(metadata['finger'], finger)
             self.assertEqual(metadata['position_target_mode'], 'model_with_startup_smoothing')
             self.assertEqual(metadata['motor_trajectory_limits'], config['teleop_motion_limits'])
-            self.assertEqual(metadata['thumb_linear_coordination'], config['thumb_linear_coordination'])
+            self.assertEqual(metadata['thumb_linear_coordination'], config.get('thumb_linear_coordination'))
             self.assertEqual(json.loads((root/'output/models/thumb.json').read_text()), config)
             import csv
             with (root/'output/samples.csv').open() as stream:
@@ -305,10 +332,17 @@ class FakeSDKThumbCoordinationTests(unittest.TestCase):
             self.assertGreater(len(followed), 10)
             for r in followed:
                 self.assertEqual(float(r['m14_target']), float(r['m14_command']))
-            for r in records:
-                for mid in (8, 27):
-                    self.assertEqual(float(r[f'm{mid}_command']), float(r[f'm{mid}_uncoordinated_prediction']))
-                self.assertEqual(float(r['thumb_side_secondary_weight']), 1.)
+            if version == 'v3':
+                for r in records:
+                    for mid in (8, 27):
+                        self.assertEqual(float(r[f'm{mid}_command']), float(r[f'm{mid}_uncoordinated_prediction']))
+                    self.assertEqual(float(r['thumb_side_secondary_weight']), 1.)
+            else:
+                mapper = control.create_mapper('thumb', thumb_version=version)
+                for r in followed:
+                    q = [float(r[f'target_relative_q{j}']) for j in range(4)]
+                    for motor, expected in mapper.predict(q).items():
+                        self.assertAlmostEqual(float(r[f'{motor.lower()}_command']), expected)
             if finger == 'five':
                 baseline = control.create_mapper('five')
                 self.assertEqual(set(metadata['model_files']), set(baseline.fingers))
@@ -322,7 +356,9 @@ class FakeSDKThumbCoordinationTests(unittest.TestCase):
                         if mid not in (4, 6, 7, 8, 14, 27):
                             self.assertAlmostEqual(float(r[f'm{mid}_command']), expected[mid], places=8)
             self.assertTrue(any(abs(float(r['m14_target'])-float(r['m14_command'])) > 5 for r in records))
-            self.assertTrue(all(r['m8_uncoordinated_prediction'] and r['m27_uncoordinated_prediction'] for r in records))
+            if version == 'v3':
+                self.assertTrue(all(r['m8_uncoordinated_prediction'] and r['m27_uncoordinated_prediction']
+                                    for r in records))
             events = [json.loads(r) for r in (root/'events.jsonl').read_text().splitlines()]
             commands = [e for e in events if e['event'] == 'command']
             self.assertEqual(events[-1]['event'], 'driver_stopped')
