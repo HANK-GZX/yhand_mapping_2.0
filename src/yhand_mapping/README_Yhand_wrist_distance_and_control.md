@@ -15,12 +15,12 @@
 - 公式与坐标表：`/home/ubuntu/yhand/wrist_mapping/Yhand_wrist_coordinates_and_distance_formulas_combined_LR_code_input_deg.xlsx`
 - 本说明：`/home/ubuntu/yhand/wrist_mapping/README_Yhand_wrist_distance_and_control.md`
 - 控制工程根目录：`src/yhand_mapping`
-- 独立配置：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/right_hand_device_config.json` 或 `left_hand_device_config.json`
+- 独立配置：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/right_hand_device_config.json` 或 `left_hand_device_config.json`
 - 交互控制脚本：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/scripts/wrist_angle_motor_control.py`
 - 手套数据发布脚本：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/scripts/minimal_example_dual_stream_commented.py`
 - 手套驱动控制脚本：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/scripts/wrist_glove_motor_control.py`
 - 手套驱动 launch：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/launch/wrist_glove_control_launch.py`
-- 手套驱动配置：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/right_hand_device_config.json`
+- 手套驱动配置：`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/right_hand_device_config.json`
 
 ## 3. 坐标与通用模型
 
@@ -68,11 +68,11 @@ pos_i(deg) = DeltaL_i * 360 / (pi * 4)
 
 编辑：
 
-`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/right_hand_device_config.json`
+`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/right_hand_device_config.json`
 
 或左手配置：
 
-`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/left_hand_device_config.json`
+`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/left_hand_device_config.json`
 
 关键字段：
 
@@ -130,11 +130,11 @@ python3 src/yhand_mapping/scripts/wrist_angle_motor_control.py --hand left
 
 编辑：
 
-`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/right_hand_device_config.json`
+`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/right_hand_device_config.json`
 
 或左手配置：
 
-`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/left_hand_device_config.json`
+`/home/ubuntu/yhand/wrist_mapping/YQ_SDK_ROS2-master/src/yhand_mapping/config/devices/left_hand_device_config.json`
 
 常用字段：
 
@@ -197,6 +197,14 @@ ros2 launch yhand_mapping wrist_glove_control_launch.py start_driver:=false
    - 这种情况下可先使用配置中的：
      - `allow_single_chunk_fallback=true`（单手数据时可继续用）
      - `fallback_chunk_index=1`（双手且 side_code 无法区分时，固定取第 2 块）
+
+### 5.5 右手手腕与五指融合的频率排查
+
+`wrist_five_finger_fusion_right_launch.py` 启动手腕与五指融合控制器。控制节点按 `right_hand_device_config.json` 中的 `output_publish_rate_hz` 定时发布，默认 100 Hz。没有新的手套角度或腕部数据时，控制器继续发送上一帧目标。电机反馈缺失或过期时，控制器按空闲张紧模式运行。
+
+- `raw_cb_hz` 和 `raw_valid_hz` 分别表示骨架数据接收和有效数据频率。两者差距大时，结合 `bad_raw` 和 `side_codes` 检查输入。
+- `glove48_hz` 表示手套关节角接收频率，`cmd_hz` 表示控制节点的命令发布频率。`late_loops` 持续增加时，用 `max_late_ms` 检查控制循环是否超过周期。
+- 默认话题可用 `ros2 topic hz /glove_joint_data_raw_skeleton` 和 `ros2 topic hz /yhand_right_cmd` 检查。改过话题时，使用配置中对应的名称。
 
 ## 6. 附录：右手 28 电机独立公式（新腕带编号）
 

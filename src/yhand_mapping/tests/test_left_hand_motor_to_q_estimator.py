@@ -48,7 +48,7 @@ class FiveFingerTests(unittest.TestCase):
             self.assertEqual(model.config['training_points'], [8149, 5606, 5889, 2670, 2227][i])
             self.assertEqual(len(model.coefficients), 1+len(model.motor_ids)+len(model.motor_ids)*(len(model.motor_ids)+1)//2)
         with self.assertRaises(ValueError):
-            MotorToQEstimator(PACKAGE/'config/left_ring_motor_to_q_estimator.json', finger='index')
+            MotorToQEstimator(PACKAGE/'config/motor_to_q_polynomial/left_ring_motor_to_q_estimator.json', finger='index')
 
     def test_complete_vector_matches_independent_per_finger_absolute_and_relative_outputs(self):
         state = hand.FiveFingerState(self.models)

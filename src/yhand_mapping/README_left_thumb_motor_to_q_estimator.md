@@ -2,7 +2,7 @@
 
 已增加[五指统一状态估计入口](README_left_hand_motor_to_q_estimator.md)，默认运行`ros2 launch yhand_mapping left_hand_motor_to_q_estimator_launch.py`；旧单拇指入口和输出话题保持兼容。运行五指节点前先退出单拇指估计节点，避免重复发布同一话题。
 
-独立脚本为 `scripts/q_estimator/left_thumb_motor_to_q_estimator.py`，独立模型为 `config/left_thumb_motor_to_q_estimator.json`。使用 M4、M6、M7、M8、M14、M27 的实际位置反馈，直接估计左手 glove48 `[8:12]` 对应的四个绝对角。默认完整二次模型有 28 个特征：常数、6 个一次项、6 个平方项和 15 个交叉项；也保存线性基线供对比。
+独立脚本为 `scripts/q_estimator/left_thumb_motor_to_q_estimator.py`，独立模型为 `config/motor_to_q_polynomial/left_thumb_motor_to_q_estimator.json`。使用 M4、M6、M7、M8、M14、M27 的实际位置反馈，直接估计左手 glove48 `[8:12]` 对应的四个绝对角。默认完整二次模型有 28 个特征：常数、6 个一次项、6 个平方项和 15 个交叉项；也保存线性基线供对比。
 
 当前 q→m 模型、控制器、操作员零位和增益均不修改。此节点仅订阅反馈、发布状态，不启动 SDK、不向电机发送命令、不在线自训练。没有实测 q 标签时，仅靠实时电机反馈不能继续监督拟合；训练在 `fit` 子命令中离线完成。
 

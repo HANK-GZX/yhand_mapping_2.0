@@ -1,8 +1,6 @@
 """
-Persistent defaults for muscle adjustment.
+Shared per-motor defaults for hand control, data collection and calibration.
 
-This file is updated by scripts/muscle_adjustment.py when the user saves
-new per-motor vel/KP/KD/tor values.
 tor: idle/default tension current
 tor_active: active-motor feedforward current for data_collection
 """

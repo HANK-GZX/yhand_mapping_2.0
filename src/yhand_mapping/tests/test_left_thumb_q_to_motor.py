@@ -19,7 +19,7 @@ from motor_trajectory import MotorTrajectoryLimiter, mapper_motion_limits
 
 
 MOTION_LIMITS = {'14': dict(max_velocity_deg_sec=120., max_acceleration_deg_sec2=480.)}
-V3_MODEL = PACKAGE/'config/experiments/left_thumb_linear_coordination_v3.json'
+V3_MODEL = PACKAGE/'config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json'
 
 
 class ThumbV4Tests(unittest.TestCase):
@@ -425,7 +425,7 @@ class ThumbModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 control.prepare_target(self.mapper, q)
         with self.assertRaises(ValueError):
-            control.FingerMapper(PACKAGE/'config/left_little_q_to_motor_models.json', finger='thumb')
+            control.FingerMapper(PACKAGE/'config/q_to_motor_polynomial/left_little_q_to_motor_models.json', finger='thumb')
 
     def test_single_thumb_commands_six_channels_and_preserves_other22_tension(self):
         defaults = control.load_defaults(PACKAGE/'scripts/muscle_adjustment_defaults.py')

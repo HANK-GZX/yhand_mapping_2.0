@@ -67,11 +67,11 @@ M4 = +0.987692601 Δq0 +2.208599440 Δq1 -1.482175309 Δq2 -1.699775995 Δq3
 M7 = +1.167228710 Δq0 -4.552288709 Δq1 +2.542185404 Δq2 +1.144780747 Δq3
 ```
 
-M6/M8/M14/M27按上述特征顺序使用完整二次系数，见[拇指模型配置](config/left_thumb_q_to_motor_models.json)的`motors.<电机号>.fits.quadratic`。当前输入保持原幅度，域外继续计算原多项式，拇指输出未附加位置窗口。
+M6/M8/M14/M27按上述特征顺序使用完整二次系数，见[拇指模型配置](config/q_to_motor_polynomial/left_thumb_q_to_motor_models.json)的`motors.<电机号>.fits.quadratic`。当前输入保持原幅度，域外继续计算原多项式，拇指输出未附加位置窗口。
 
 ### 可选侧摆／对掌协调候选
 
-当前候选为`config/experiments/left_thumb_linear_coordination_v3.json`。它沿用原多项式与1.10倍q0相关项，M8/M27完整保留q0/q1/q2/q3及交叉项，不再做q0单变量锚点和弯曲门限切换；侧摆`effective_degrees`恢复为2。M14以纯q1预测为锚点，保留25%的其余耦合，没有重新拟合或使用MLP。基础拟合指标不代表手工控制调整后的遥操精度。
+当前候选为`config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json`。它沿用原多项式与1.10倍q0相关项，M8/M27完整保留q0/q1/q2/q3及交叉项，不再做q0单变量锚点和弯曲门限切换；侧摆`effective_degrees`恢复为2。M14以纯q1预测为锚点，保留25%的其余耦合，没有重新拟合或使用MLP。基础拟合指标不代表手工控制调整后的遥操精度。
 
 单拇指和五指linear均可通过`thumb_version:=v3`选择该文件。五指中只有拇指切换，其余四指仍使用各自默认linear文件；省略该参数或指定`thumb_version:=default`保留原五指映射。此选项不适用于MLP，也不能与单指`model_file`混用。
 
@@ -103,7 +103,7 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor.p
   --finger thumb --model linear --q 0 0 0 0 --json
 ```
 
-Python调用`FingerMapper(finger='thumb').predict([0,0,0,0])`，六路返回0。活动模型为`config/left_thumb_q_to_motor_models.json`，拟合入口为`scripts/q_2_m linear mapping/fit_left_thumb_q_to_motor.py`。复算并写入临时文件：
+Python调用`FingerMapper(finger='thumb').predict([0,0,0,0])`，六路返回0。活动模型为`config/q_to_motor_polynomial/left_thumb_q_to_motor_models.json`，拟合入口为`scripts/q_2_m linear mapping/fit_left_thumb_q_to_motor.py`。复算并写入临时文件：
 
 ```bash
 python3 "src/yhand_mapping/scripts/q_2_m linear mapping/fit_left_thumb_q_to_motor.py" \
@@ -211,10 +211,10 @@ m_command = b0·Δq0 + b1·Δq1 + b2·Δq2 + b3·Δq3
 
 当前系数及来源分别保存在：
 
-- [食指配置](config/left_index_q_to_motor_models.json)
-- [中指配置](config/left_middle_q_to_motor_models.json)
-- [无名指配置](config/left_ring_q_to_motor_models.json)
-- [小指配置](config/left_little_q_to_motor_models.json)
+- [食指配置](config/q_to_motor_polynomial/left_index_q_to_motor_models.json)
+- [中指配置](config/q_to_motor_polynomial/left_middle_q_to_motor_models.json)
+- [无名指配置](config/q_to_motor_polynomial/left_ring_q_to_motor_models.json)
+- [小指配置](config/q_to_motor_polynomial/left_little_q_to_motor_models.json)
 
 食指与中指的带截距分析代码分别位于`index_data/analysis/index_linearity`、`index_data/analysis/index_side_linearity`及`middle_data/analysis/middle_linearity`、`middle_data/analysis/middle_side_linearity`；无名指侧摆分析代码位于`ring_data/analysis/ring_distribution/side_four_q_analysis.py`。这些路径均相对于`scripts/motor_test_logs/data_collection/`，其输出是离线分析档案，活动映射读取上述JSON。
 
@@ -239,7 +239,7 @@ PY
 
 脚本：`scripts/q_2_m linear mapping/left_little_q_to_motor.py`。计算位置并打印结果，不发布电机命令。linear推理只依赖Python标准库，mlp推理需要NumPy，均无需启动ROS。
 
-使用`--finger index`计算食指M25伸肌、M3浅屈、M15深屈、M1内收、M28外展，五路全部使用四个Δq的一次模型。配置为`config/left_index_q_to_motor_models.json`，来源为已分析的5606个正式采样点。采用增量关系`Δm=BΔq`，相对q全0时五路输出0；linear模式使用这套一次关系。
+使用`--finger index`计算食指M25伸肌、M3浅屈、M15深屈、M1内收、M28外展，五路全部使用四个Δq的一次模型。配置为`config/q_to_motor_polynomial/left_index_q_to_motor_models.json`，来源为已分析的5606个正式采样点。采用增量关系`Δm=BΔq`，相对q全0时五路输出0；linear模式使用这套一次关系。
 
 ```bash
 python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor.py" --finger index --q -5 10 20 5
@@ -247,7 +247,7 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor.p
 
 Python接口为`FingerMapper(finger='index').predict([-5,10,20,5])`。训练启动参考不是精确电机零位q，源模型的带截距验证误差不能当作增量控制误差。[实机测试说明](README_left_hand_q_to_motor.md)包含食指单独控制及`finger:=four`四指统一控制的指令。
 
-使用`--finger middle`计算中指五台电机：M23伸肌、M16浅屈、M2深屈、M9内收、M24外展，均使用四个Δq的一次关系。系数来自20261016批次5889个正式xy点，配置位于`config/left_middle_q_to_motor_models.json`。
+使用`--finger middle`计算中指五台电机：M23伸肌、M16浅屈、M2深屈、M9内收、M24外展，均使用四个Δq的一次关系。系数来自20261016批次5889个正式xy点，配置位于`config/q_to_motor_polynomial/left_middle_q_to_motor_models.json`。
 
 ```bash
 python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor.py" --finger middle --q -5 10 20 5
@@ -255,7 +255,7 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor.p
 
 Python接口：`FingerMapper(finger='middle').predict([-5,10,20,5])`。中指使用增量输出`Δm=BΔq`，相对四q全0时五路输出全0；linear模式使用这套一次关系。训练启动参考不是精确电机零位，原坐标带截距验证指标仅保留为来源信息。中指控制入口、系数及不添加电机限位的配置见[实机测试说明](README_left_hand_q_to_motor.md)。
 
-默认选择小指。添加`--finger ring`使用无名指，自动加载`config/left_ring_q_to_motor_models.json`，输出M10伸肌、M17屈肌、M22内收、M21外展。无名指四台电机均使用四个Δq：伸屈保留原线性/二次模型，侧摆在两种模型选项下均使用新批次的四q一次补偿。机器人参考q为`[-2,-6,0,-12]°`，Manus角度取`[20:24]`。
+默认选择小指。添加`--finger ring`使用无名指，自动加载`config/q_to_motor_polynomial/left_ring_q_to_motor_models.json`，输出M10伸肌、M17屈肌、M22内收、M21外展。无名指四台电机均使用四个Δq：伸屈保留原线性/二次模型，侧摆在两种模型选项下均使用新批次的四q一次补偿。机器人参考q为`[-2,-6,0,-12]°`，Manus角度取`[20:24]`。
 
 无名指侧摆来自`20261021_171709_left_collection`中排除预采和末尾500个密集点后的2170个正式点，使用带截距拟合的斜率，并扣除零输入预测，保持Δq=0时电机输出0：
 
@@ -354,9 +354,9 @@ positions = mapper.predict([0, 10, 20, 5], relative=True, model='linear')
 positions = mapper.predict([-5, -9, 7, -10], relative=False)  # 显式原始角度
 ```
 
-系数文件为`config/left_little_q_to_motor_models.json`，来自`20261020_165513_left_collection/left_hand/little`的2,227个正式xy点，包含超时点。原始电机标签保持不变，通过无截距最小二乘重新拟合；新零位来自用户，脚本未进行物理标定。配置保存输入范围、拟合误差和按combo分层的五折随机交叉验证误差。
+系数文件为`config/q_to_motor_polynomial/left_little_q_to_motor_models.json`，来自`20261020_165513_left_collection/left_hand/little`的2,227个正式xy点，包含超时点。原始电机标签保持不变，通过无截距最小二乘重新拟合；新零位来自用户，脚本未进行物理标定。配置保存输入范围、拟合误差和按combo分层的五折随机交叉验证误差。
 
-原点约束与旧侧摆数据存在冲突：线性模型M18五折MAE为6.04°，M20为15.08°（电机位置误差），M20的R²为−0.251；二次模型M20也为13.24°。因此这次修正了零位对应关系，不能认定侧摆精度改善。伸屈线性MAE约2.77°/2.72°，二次约0.98°/1.10°。当前系数和验证结果见[小指配置](config/left_little_q_to_motor_models.json)。
+原点约束与旧侧摆数据存在冲突：线性模型M18五折MAE为6.04°，M20为15.08°（电机位置误差），M20的R²为−0.251；二次模型M20也为13.24°。因此这次修正了零位对应关系，不能认定侧摆精度改善。伸屈线性MAE约2.77°/2.72°，二次约0.98°/1.10°。当前系数和验证结果见[小指配置](config/q_to_motor_polynomial/left_little_q_to_motor_models.json)。
 
 输出不自动裁剪到电机范围；输入NaN/Inf、错误数量或计算溢出会报错。小指侧摆模型仅使用q0，无名指侧摆加入四q补偿；数值输出不能替代实机跟踪验证。
 

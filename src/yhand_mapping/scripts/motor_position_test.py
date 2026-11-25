@@ -47,7 +47,7 @@ ZERO_FLEXOR_RELEASE_SEC = 0.5
 SNAPSHOT_FILE_SCHEMA = "motor_position_test.snapshot.v1"
 MOTOR_FEEDBACK_RECORD_IDS_BY_HAND = dict(FINGER_MOTOR_IDS_BY_HAND)
 
-# Align antagonist-assist behavior with muscle_adjustment.py
+# Antagonist-assist modes and default release current.
 ASSIST_MODE_OFF = "off"
 ASSIST_MODE_RELEASE = "release_tor"
 ASSIST_RELEASE_TOR = 0.5

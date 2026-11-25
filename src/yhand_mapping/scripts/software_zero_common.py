@@ -18,7 +18,7 @@ from hand_motor_map import (
 MOTOR_COUNT = 28
 HAND_CHOICES = ("left", "right")
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config" / "software_zero_calibration_config.json"
+DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config" / "calibration" / "software_zero_calibration_config.json"
 DEFAULT_DEFAULTS_PATH = PACKAGE_ROOT / "scripts" / "muscle_adjustment_defaults.py"
 DEFAULT_REFERENCE_DIR = "scripts/software_zero/reference"
 DEFAULT_STATE_DIR = "scripts/software_zero/state"

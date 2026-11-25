@@ -22,7 +22,7 @@ import left_little_q_to_motor_test as control
 
 def fixture():
     """Synthetic positions/limits for tests ONLY; never a hardware profile."""
-    c = json.loads((PACKAGE/'config/left_thumb_combo_template.json').read_text())
+    c = json.loads((PACKAGE/'config/calibration/left_thumb_combo_template.json').read_text())
     c.update(calibration_status='measured', motor_zero_id='SYNTHETIC_TEST_ONLY')
     for mid in MOTORS:
         key = str(mid)
@@ -133,7 +133,7 @@ class ComboTests(unittest.TestCase):
 
     def test_template_bad_geometry_and_wrong_finger_rejected(self):
         with self.assertRaisesRegex(ValueError, '实测标定'):
-            ThumbComboPolicy(PACKAGE/'config/left_thumb_combo_template.json')
+            ThumbComboPolicy(PACKAGE/'config/calibration/left_thumb_combo_template.json')
         for change in ['zero', 'sequence', 'duplicate', 'limits']:
             with self.subTest(change=change):
                 c = fixture()

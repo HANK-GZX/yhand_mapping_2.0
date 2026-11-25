@@ -114,9 +114,9 @@ def _launch_setup(context):
             config_file = (project_root / config_file).resolve()
     else:
         if target_hand == "both":
-            config_file = (project_root / "config" / "bimanual_hand_device_config.json").resolve()
+            config_file = (project_root / "config" / "devices" / "bimanual_hand_device_config.json").resolve()
         else:
-            config_file = (project_root / "config" / f"{target_hand}_hand_device_config.json").resolve()
+            config_file = (project_root / "config" / "devices" / f"{target_hand}_hand_device_config.json").resolve()
 
     start_driver = _bool_from_launch_arg(LaunchConfiguration("start_driver").perform(context))
     start_glove_node = _bool_from_launch_arg(LaunchConfiguration("start_glove_node").perform(context))
@@ -452,7 +452,7 @@ def generate_launch_description():
                 description=(
                     "Optional hybrid fusion runtime JSON config. "
                     "Leave empty to auto-select left/right hand config, or "
-                    "config/bimanual_hand_device_config.json when target_hand=both."
+                    "config/devices/bimanual_hand_device_config.json when target_hand=both."
                 ),
             ),
             DeclareLaunchArgument(

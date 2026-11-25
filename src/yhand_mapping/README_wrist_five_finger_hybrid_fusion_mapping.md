@@ -11,7 +11,7 @@
 
 - 手腕部分沿用 `wrist_angle_motor_control.py` 的角度解算与 28 电机 wrist delta 逻辑
 - 拇指使用 `thumb_prev_m_target_q_mlp_mapping_main.py` 的 `prev_m + target_q MLP`
-- 食指 / 中指 / 无名指 / 小指使用 `curl_m0_m2_mlp_mapping_main.py` / `five_finger_ring_curl_thumb_prev_m_target_q_mapping_main.py` 这一套 `q0 + curl` 非拇指逻辑
+- 食指、中指、无名指和小指使用 `non_thumb_curl_models.py` 加载的 `q0 + curl` MLP
 - 最终在 28 电机命令层做融合输出
 
 当前推荐配置已经切成：
@@ -77,7 +77,7 @@ index/middle/ring/little:
 
 它会根据 `target_hand` 自动：
 
-- 选择 `config/right_hand_device_config.json` 或 `config/left_hand_device_config.json`
+- 选择 `config/devices/right_hand_device_config.json` 或 `config/devices/left_hand_device_config.json`
 - 校验 config 中声明的 hand 是否匹配
 - 切换 driver node name、`cmd_topic`、`feedback_topic`
 - 切换 glove side code

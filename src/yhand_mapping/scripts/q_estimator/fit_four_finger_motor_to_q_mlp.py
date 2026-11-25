@@ -186,7 +186,7 @@ def fit_finger(finger, args, folder):
         arrays.update({f'{scheme}_{name}': y for name, y in estimates.items()})
     selected = np.median(epoch_choices, axis=0).astype(int).tolist()
     fit, _ = train(m, q, finger, args, seed=args.seed, epochs=selected)
-    base_path = PACKAGE/f'config/left_{finger}_q_to_motor_models.json'
+    base_path = PACKAGE/f'config/q_to_motor_polynomial/left_{finger}_q_to_motor_models.json'
     base = json.loads(base_path.read_text())
     source = dict(provenance, collection=str(mroot.relative_to(PACKAGE)) if mroot.is_relative_to(PACKAGE) else str(mroot))
     config = {'schema_version': 2, 'mapping': 'motor_feedback_to_q', 'model_type': 'grouped_mlp',

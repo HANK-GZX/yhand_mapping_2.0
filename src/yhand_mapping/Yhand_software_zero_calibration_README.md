@@ -45,8 +45,8 @@ scripts/software_zero_common.py
 配置：
 
 ```text
-config/software_zero_calibration_config.json
-config/bimanual_hand_device_config.json
+config/calibration/software_zero_calibration_config.json
+config/devices/bimanual_hand_device_config.json
 scripts/muscle_adjustment_defaults.py
 ```
 
@@ -154,7 +154,7 @@ ros2 launch yhand_mapping software_zero_proxy_launch.py \
 参数位置：
 
 ```text
-config/software_zero_calibration_config.json
+config/calibration/software_zero_calibration_config.json
 ```
 
 关键参数：

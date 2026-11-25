@@ -38,7 +38,7 @@ except Exception as exc:  # pragma: no cover
 else:
     FUSION_MAPPING_IMPORT_ERROR = None
 
-from five_finger_delta_mapping_main import (
+from five_finger_delta_models import (
     DEFAULT_FINGER_ORDER,
     FINGER_DEFAULTS_BY_HAND,
     MOTOR_CMD_OFFSET_MAP_DEFAULTS,
@@ -48,8 +48,6 @@ from five_finger_delta_mapping_main import (
     _load_delta_multihead_model,
     _mirror_motors_left_to_right,
     _parse_csv_ints,
-    _parse_motor_cmd_offset_map_json,
-    _parse_q_offset_map_json,
 )
 from wrist_angle_motor_control import (
     DEFAULT_OUTPUT_PUBLISH_RATE_HZ,

@@ -79,9 +79,7 @@ ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=left assist
 对抗肌辅助（默认开启）：
 
 - 若当前主动电机属于伸屈/侧摆映射，会在动作前短时对对抗肌施加放线扭矩
-- 参数与 `muscle_adjustment.py` 对齐：
-  - `ASSIST_RELEASE_TOR=0.5`
-  - `ASSIST_RELEASE_SEC=0.4s`
+- 放线电流按手指和肌肉角色配置，通用默认值为 `0.5 A`。放线时长根据电机类别和位移计算，类别未知时使用 `0.5 s`。
 - 支持范围：四指伸屈、四指侧摆、拇指伸屈与侧摆（双向映射）
 
 判定与超时：

@@ -13,7 +13,7 @@ ROS 启动命令保持不变：
 ros2 launch yhand_mapping left_hand_motor_to_q_estimator_launch.py model:=linear
 ```
 
-模型仍在 `config/`，日志仍在 `scripts/motor_test_logs/motor_to_q_estimator/`。
+多项式模型位于 `config/motor_to_q_polynomial/`，神经网络权重位于 `config/motor_to_q_mlp/`。日志位于 `scripts/motor_test_logs/motor_to_q_estimator/`。
 详细用法见[五指估计器说明](../../README_left_hand_motor_to_q_estimator.md)
 和[拇指估计器说明](../../README_left_thumb_motor_to_q_estimator.md)。
 

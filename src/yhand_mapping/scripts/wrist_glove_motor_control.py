@@ -289,7 +289,7 @@ class GloveToWristController(Node):
             self.publisher = None
             self.feedback_sub = None
         else:
-            # Match five_finger_delta_mapping_main.py / Y_Hand_Node default queue style.
+            # Match the default queue depth used by Y_Hand_Node.
             self.publisher = self.create_publisher(YHandMsg, self.cmd_topic, 10)
             self.feedback_sub = self.create_subscription(YHandMsg, self.feedback_topic, self._feedback_cb, 10)
 

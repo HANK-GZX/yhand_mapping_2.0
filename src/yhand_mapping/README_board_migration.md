@@ -135,9 +135,9 @@ src/yhand_mapping/scripts/mocapapi_python-main/
 
 这几个文件决定了手部驱动连接哪块板、哪台上位机、哪只手：
 
-- `config/right_hand_device_config.json`
-- `config/left_hand_device_config.json`
-- `config/bimanual_hand_device_config.json`
+- `config/devices/right_hand_device_config.json`
+- `config/devices/left_hand_device_config.json`
+- `config/devices/bimanual_hand_device_config.json`
 
 迁移到板卡后，重点检查：
 
@@ -183,8 +183,8 @@ ros2 launch yhand_mapping yhand_pretighten_launch.py
 那还要额外检查：
 
 ```text
-config/left_hand_device_config.json
-config/right_hand_device_config.json
+config/devices/left_hand_device_config.json
+config/devices/right_hand_device_config.json
 ```
 
 此辅助流程分别读取左右手 JSON 文件的 pc_ip、sn 和 boards 字段（包括可选 port）；官方设备 launch 保留上游默认配置。
@@ -498,7 +498,7 @@ source install/setup.bash
 
 1. 把整个 `YQ_SDK_ROS2-master` 打包到板卡
 2. 在板卡安装 Python 依赖，不强制单独建 `venv`
-3. 修改 `config/*.json` 里的设备网络参数
+3. 修改 `config/devices/*.json` 里的设备网络参数
 4. 修改 `mocap_main_base.py` 里的 UDP 地址
 5. 板卡上重新 `colcon build --packages-up-to yhand_mapping`
 6. 先用 `ros2 launch ... start_mocap_node:=false` 验证手部和手指

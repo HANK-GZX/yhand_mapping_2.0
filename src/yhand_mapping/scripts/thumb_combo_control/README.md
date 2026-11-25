@@ -25,7 +25,7 @@
 
 20261026_150435_968260 日志中 M4/M14 已经松线，而 M7 负载较大。那些反馈位置不能作为“正确对指且张紧”的监督标签。全局模型的训练数据又缺少操作手姿态到实际正确对指姿态的配对。因此不能用 +59°、+12° 或观测到的 M7 停滞位置直接生成新控制标定。
 
-仓库提供 `config/left_thumb_combo_template.json`。其中未知的行程、速度、电流上限保留 `null`，关键点为空。模板会被控制器明确拒绝，避免把示例数值当作已标定参数。测试中的 `SYNTHETIC_TEST_ONLY` 数据仅验证算法，不能用于机器手。
+仓库提供 `config/calibration/left_thumb_combo_template.json`。其中未知的行程、速度、电流上限保留 `null`，关键点为空。模板会被控制器明确拒绝，避免把示例数值当作已标定参数。测试中的 `SYNTHETIC_TEST_ONLY` 数据仅验证算法，不能用于机器手。
 
 ## 1. 采集方向与张紧位置
 
@@ -60,7 +60,7 @@ quit
 ## 2. 填写约束并生成标定文件
 
 ```bash
-cp src/yhand_mapping/config/left_thumb_combo_template.json /tmp/left_thumb_combo_settings.json
+cp src/yhand_mapping/config/calibration/left_thumb_combo_template.json /tmp/left_thumb_combo_settings.json
 ```
 
 将 `/tmp/left_thumb_combo_settings.json` 中这些字段填写为该机器手已经验证的值：
@@ -76,7 +76,7 @@ cp src/yhand_mapping/config/left_thumb_combo_template.json /tmp/left_thumb_combo
 python3 src/yhand_mapping/scripts/thumb_combo_control/collect_thumb_combo_calibration.py build \
   --recording src/yhand_mapping/scripts/motor_test_logs/thumb_combo_calibration/recording.json \
   --settings /tmp/left_thumb_combo_settings.json \
-  --output src/yhand_mapping/config/left_thumb_combo_calibrated.json
+  --output src/yhand_mapping/config/calibration/left_thumb_combo_calibrated.json
 ```
 
 生成器检查：路径为外展→内收；关键点不重复且在允许行程内；原电机零位不被悄悄平移；位置、速度、电流均有有效参数。它记录原始采集文件 SHA256。静态参数校验不代表已经完成实机验证。
@@ -95,7 +95,7 @@ source install/setup.bash
 ```bash
 ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
   finger:=five input_mode:=2 model:=mlp \
-  thumb_combo_calibration:=/home/yhand-demo/Yhand_Mapping_2.0/src/yhand_mapping/config/left_thumb_combo_calibrated.json
+  thumb_combo_calibration:=/home/yhand-demo/Yhand_Mapping_2.0/src/yhand_mapping/config/calibration/left_thumb_combo_calibrated.json
 ```
 
 已有手套发布器时追加 `start_glove_node:=false`。仅拇指测试可使用 `finger:=thumb`。不传 `thumb_combo_calibration` 就使用原控制。

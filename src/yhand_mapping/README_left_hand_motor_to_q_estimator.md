@@ -127,7 +127,7 @@ python3 src/yhand_mapping/scripts/q_estimator/left_hand_motor_to_q_estimator.py 
 - 无名指：`data_collection/ring_data/left_hand/ring`，全部2670个正式xy点，包括此前侧摆分析排除的最后500个密集点。四路反馈来自同一批次；没有混入旧伸屈模型的其他批次。
 - 小指：`data_collection/little_data/left_hand/little`，全部2227个正式xy点，未使用只覆盖前147点的旧审计快照代替全量数据。
 
-缓存读取校验point_id与日志；存在日志快照时也比较完整日志。数据源哈希、范围、归一化参数、系数、设计矩阵秩、五折分层验证和留组合验证均保存在独立的 `config/left_<finger>_motor_to_q_estimator.json`。`--refresh-cache`强制重新读取原始配对Excel，缓存只保存在采集目录的analysis中。
+缓存读取校验point_id与日志；存在日志快照时也比较完整日志。数据源哈希、范围、归一化参数、系数、设计矩阵秩、五折分层验证和留组合验证均保存在独立的 `config/motor_to_q_polynomial/left_<finger>_motor_to_q_estimator.json`。`--refresh-cache`强制重新读取原始配对Excel，缓存只保存在采集目录的analysis中。
 
 本批默认模型留一动作组合的MAE（按q0/q1/q2/q3，度）：
 

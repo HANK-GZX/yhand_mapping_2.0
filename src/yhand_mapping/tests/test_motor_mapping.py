@@ -110,10 +110,6 @@ def test_parameters_stay_with_original_muscle(path, name, original):
     elif name.startswith("DATA_COLLECTION_RELEASE_"):
         expected = {hand: keyed(hand, {active: keyed(hand, targets) for active, targets in values.items()})
                     for hand, values in original.items()}
-    elif name == "EXTENSOR_ASSIST_MAP":
-        expected = {hand: keyed(hand, {ext: {"flexors": migrated(hand, params["flexors"])}
-                                     for ext, params in values.items()})
-                    for hand, values in original.items()}
     elif name == "FINGER_ASSIST_CONFIG":
         expected = json.loads(json.dumps(original))
         for hand, fingers in expected.items():
@@ -147,9 +143,8 @@ def test_parameters_stay_with_original_muscle(path, name, original):
 def test_side_swing_uses_selected_hand(hand):
     expected = {mid for muscle, mid in spreadsheet_motors(hand).items()
                 if not muscle.startswith("thumb_") and muscle.endswith(("_abd", "_add"))}
-    for name in ("five_finger_delta_mapping_main", "curl_m0_m2_mlp_mapping_main"):
-        mod = importlib.import_module(name)
-        assert {mid for mid in range(1, 29) if mod._is_side_swing_motor_id(mid, hand)} == expected
+    mod = module("scripts/non_thumb_curl_models.py")
+    assert {mid for mid in range(1, 29) if mod._is_side_swing_motor_id(mid, hand)} == expected
 
 
 @pytest.mark.parametrize("filename", LEGACY["config"])

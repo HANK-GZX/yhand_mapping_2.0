@@ -11,7 +11,7 @@ ros2 launch yhand_mapping workspace_boundary_launch.py
 ros2 launch yhand_mapping workspace_boundary_launch.py target_hand:=right
 ```
 
-Launch 读取 `config/left_hand_device_config.json` 或 `config/right_hand_device_config.json`，启动对应手的 `Y_Hand_Node`，随后打开独立终端运行 `scripts/workspace_boundary_collect.py`。无需指定采集模式。
+Launch 读取 `config/devices/left_hand_device_config.json` 或 `config/devices/right_hand_device_config.json`，启动对应手的 `Y_Hand_Node`，随后打开独立终端运行 `scripts/workspace_boundary_collect.py`。无需指定采集模式。
 
 左手话题：`/yhand_left_cmd`、`/yhand_left_feedback`；右手：`/yhand_right_cmd`、`/yhand_right_feedback`。
 

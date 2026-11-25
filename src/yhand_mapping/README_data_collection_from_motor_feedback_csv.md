@@ -8,20 +8,13 @@
 - `scripts/data_collection_from_motor_feedback_csv.py`
 - `scripts/data_collection_main.py`
 
-这条链路用于“按 five_finger 导出的 motor feedback CSV 回放目标点，并重新采集 glove / raw skeleton / motor feedback 数据”。
-
-补充说明：
-
-- 这里使用的原始 `motor feedback CSV`，最初是通过 `scripts/five_finger_delta_mapping_main.py` 摇操记录得到的。
-- 如果需要追踪 CSV 的生成/落盘逻辑，可直接参考 `five_finger_delta_mapping_main.py` 里的 five_finger 记录流程，尤其是 `record_motor_feedback_csv`、`motor_feedback_csv_path` 以及 `motor_feedback_frames/` 相关逻辑。
+这条链路读取电机反馈 CSV 来回放目标点，并重新采集 glove、raw skeleton 和 motor feedback 数据。
 
 ---
 
 ## 1. 整体用途
 
-输入是 five_finger mapping 记录出来的 `motor_feedback_frames/*.csv`。
-
-这些 CSV 默认对应 `scripts/five_finger_delta_mapping_main.py` 摇操过程中记录下来的 motor feedback 帧；如果想确认表头、输出目录和记录时机，建议直接对照 five_finger 的 CSV 记录实现。
+此前保存到 `motor_feedback_frames/` 的五指遥操 CSV 仍可作为输入，列名要求见下文。
 
 脚本会把 CSV 中每一行电机位置当作一个目标点：
 

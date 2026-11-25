@@ -379,7 +379,7 @@ class RingPlanningTests(unittest.TestCase):
 
     def test_ring_model_selection_and_cli_dry_run(self):
         with self.assertRaises(ValueError):
-            control.FingerMapper(PACKAGE/'config/left_little_q_to_motor_models.json',finger='ring')
+            control.FingerMapper(PACKAGE/'config/q_to_motor_polynomial/left_little_q_to_motor_models.json',finger='ring')
         result = subprocess.run([sys.executable,str(SCRIPT),'--finger','ring','--dry-run','--q','0','0','0','0'],
                                 text=True,capture_output=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stderr)
@@ -626,7 +626,7 @@ class IndexPlanningTests(unittest.TestCase):
         for q in [[0]*3,[0]*5,[0,math.nan,0,0],[math.inf,0,0,0]]:
             with self.assertRaises(ValueError):control.prepare_target(self.mapper,q)
         with self.assertRaises(ValueError):
-            control.FingerMapper(PACKAGE/'config/left_middle_q_to_motor_models.json',finger='index')
+            control.FingerMapper(PACKAGE/'config/q_to_motor_polynomial/left_middle_q_to_motor_models.json',finger='index')
 
 
 class BothPlanningTests(unittest.TestCase):

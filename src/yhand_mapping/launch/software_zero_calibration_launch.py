@@ -237,8 +237,8 @@ def _launch_setup(context):
 def generate_launch_description():
     launch_file = Path(__file__).resolve()
     project_root = _find_project_root(launch_file)
-    default_device_config = project_root / "config" / "bimanual_hand_device_config.json"
-    default_zero_config = project_root / "config" / "software_zero_calibration_config.json"
+    default_device_config = project_root / "config" / "devices" / "bimanual_hand_device_config.json"
+    default_zero_config = project_root / "config" / "calibration" / "software_zero_calibration_config.json"
     default_defaults_path = project_root / "scripts" / "muscle_adjustment_defaults.py"
 
     return LaunchDescription(

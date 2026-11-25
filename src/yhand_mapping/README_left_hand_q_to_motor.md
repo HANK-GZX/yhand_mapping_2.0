@@ -56,7 +56,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
   finger:=index input_mode:=1 manual_coupling:=off
 ```
 
-参考文件为`config/manual_joint_coupling.json`。历史阶段保留`five_q_to_motor_test/20261102_161407_627992`的8144条姿态代表点，加上30段历史Manus日志，得到91064条。当前进一步加入`data_collection`五指的8735条采集姿态代表点，总计99799条。原32段历史日志继续整段留出；采集数据另按2°四维姿态格留出20%，同格重复点整体留出。手动输入的任意目标不作为参考正样本。原点全部保留，未扩大容差或合成角度组合。
+参考文件为`config/calibration/manual_joint_coupling.json`。历史阶段保留`five_q_to_motor_test/20261102_161407_627992`的8144条姿态代表点，加上30段历史Manus日志，得到91064条。当前进一步加入`data_collection`五指的8735条采集姿态代表点，总计99799条。原32段历史日志继续整段留出；采集数据另按2°四维姿态格留出20%，同格重复点整体留出。手动输入的任意目标不作为参考正样本。原点全部保留，未扩大容差或合成角度组合。
 
 每段使用自己的操作员零位形成Δq；筛选新鲜、有限、完整且`target_q=q_reference+target_relative_q`的活动目标，按target_id去重，继续排除已知疑似角度表示分支，并排除两端均恢复正屈曲、入/出段q2各跳变超过90°的深负角度段（本次拇指11个目标）。`source.additional_logs`保留各段日志哈希、会话零位、分组及质量计数，`source.held_out_logs`保存验证清单。原始日志无需随部署复制。该数据是**人手输入分布，未独立测量灵巧手关节角**；参考内姿态不保证机械可达，参考外姿态也不等于机械不可达。
 
@@ -70,7 +70,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
 python3 src/yhand_mapping/scripts/build_manual_joint_coupling.py \
   --collection-root src/yhand_mapping/scripts/motor_test_logs/data_collection \
   --baseline-reference src/yhand_mapping/scripts/motor_test_logs/joint_coupling_augmentation/20261103_collection_supplement/baseline_reference.json \
-  --output src/yhand_mapping/config/manual_joint_coupling.json
+  --output src/yhand_mapping/config/calibration/manual_joint_coupling.json
 ```
 
 历史补充及数采补充的原参考、验证结果和对比图分别保存在`scripts/motor_test_logs/joint_coupling_augmentation/20261103_history_split/`和`20261103_collection_supplement/`。后者的baseline是历史补充后的91064点参考。构建脚本仍支持单段及历史日志构建接口；这些接口重建不包含本次数采补充，勿直接覆盖当前参考，除非明确需要回退。
@@ -89,7 +89,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=five input_mode
 
 单指可添加`model_file:=/完整路径/候选模型.json`临时测试linear或MLP模型；留空使用默认配置。多指模式按各指加载配置，不能指定单个`model_file`。
 
-五指linear使用`thumb_version:=v3`时，拇指加载`config/experiments/left_thumb_linear_coordination_v3.json`，其余四指保留原linear模型、增益及电流设置；M14启动柔化在同一五指控制进程中执行。仍使用一个SDK驱动、一个Manus节点，20角输入顺序保持不变。
+五指linear使用`thumb_version:=v3`时，拇指加载`config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json`，其余四指保留原linear模型、增益及电流设置；M14启动柔化在同一五指控制进程中执行。仍使用一个SDK驱动、一个Manus节点，20角输入顺序保持不变。
 
 ```bash
 # 五指v3：拇指v3＋其余四指原linear
@@ -105,7 +105,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
 
 `thumb_version:=v4` 用 12 个采集组合的组内变化合成一套四角到六电机的一次矩阵，M14 沿用 V3 的启动柔化。五指命令可将上面的 `thumb_version:=v3` 换成 `thumb_version:=v4`。[V4 拟合与启动说明](README_left_thumb_linear_v4.md)
 
-V3 配置为`config/experiments/left_thumb_linear_coordination_v3.json`，也可使用`model:=linear`和单指`model_file`加载。M8/M27采用完整四角补偿，q0相关项为1.10倍。M14保留q1主通道，其余耦合为25%。
+V3 配置为`config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json`，也可使用`model:=linear`和单指`model_file`加载。M8/M27采用完整四角补偿，q0相关项为1.10倍。M14保留q1主通道，其余耦合为25%。
 
 M14启动与运行分开：首次启用从最新反馈位置起步；目标相对初始反馈偏移达到10**电机度**后计时，先以120电机°/s、480电机°/s²柔化1秒，再用1秒平滑交接到实时目标，之后直接跟随。小于触发量的输入仍有响应，不是角度死区；每帧计时最多累计50ms，延迟不跳过柔化。交接阶段逐步解除速度／加速度约束，不再保证120/480上限。退出位控清除启动状态，停机零电流直接执行。这些是试验参数，不是物理电机上限。
 
@@ -115,7 +115,7 @@ M14启动与运行分开：首次启用从最新反馈位置起步；目标相�
 source install/setup.bash
 ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
   finger:=thumb input_mode:=2 model:=linear \
-  model_file:="$PWD/src/yhand_mapping/config/experiments/left_thumb_linear_coordination_v3.json"
+  model_file:="$PWD/src/yhand_mapping/config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json"
 ```
 
 下文拇指既有一次／二次混合标定属于`linear`模式的内部策略。
@@ -149,7 +149,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=thumb input_mod
 
 完整二次模型包含4个一次项、4个平方项、6个交叉项；展开顺序为`1,x0,x1,x2,x3,x0²,x0x1,x0x2,x0x3,x1²,x1x2,x1x3,x2²,x2x3,x3²`。`model`参数继续控制其余四指的原有选项，对拇指六路始终使用表中约定。
 
-系数文件为`config/left_thumb_q_to_motor_models.json`，已从扩展前的完整备份恢复，来源仍为8149个正式full点，包含3126个运动超时点。参考角恢复为采集启动帧`[8.491,38.262,26.028,-26.219]°`。源模型使用自由截距最小二乘，然后展开为`f(q_reference+Δq)-f(q_reference)`，保证相对四q全0时六路目标均0；这不是按用户提供的新零位做原点约束重拟合。用户提供的`[-3,42,40,-36]°`保留在历史实验记录中，本次恢复不使用该参考角。
+系数文件为`config/q_to_motor_polynomial/left_thumb_q_to_motor_models.json`，已从扩展前的完整备份恢复，来源仍为8149个正式full点，包含3126个运动超时点。参考角恢复为采集启动帧`[8.491,38.262,26.028,-26.219]°`。源模型使用自由截距最小二乘，然后展开为`f(q_reference+Δq)-f(q_reference)`，保证相对四q全0时六路目标均0；这不是按用户提供的新零位做原点约束重拟合。用户提供的`[-3,42,40,-36]°`保留在历史实验记录中，本次恢复不使用该参考角。
 
 拇指输入四q保持原幅度，使用原完整多项式；不施加CMC增益、切线外推或新增拇指位置窗口。固定前馈0A，KP/KD读取现有`muscle_adjustment_defaults.py`；不添加无名指的侧摆方向电流偏置。其余四指策略不变。
 
@@ -223,7 +223,7 @@ M1  = +2.06561 Δq0 -0.13520 Δq1 -0.09968 Δq2 -0.21285 Δq3
 M28 = -2.14885 Δq0 -0.75558 Δq1 +0.13754 Δq2 +0.30824 Δq3
 ```
 
-配置为`config/left_index_q_to_motor_models.json`，保留原始截距、分析来源校验值和原坐标验证指标。它们不能直接当作增量模型的实机控制精度。训练参考`[3.627,-6.019,0.028,-2.929]°`只是启动帧，不是本机精确电机零位q；只用于显式absolute输入和日志参考。手动模式默认输入Δq，不再次减参考；Manus采用操作员自己的启动零位，只按变化控制。
+配置为`config/q_to_motor_polynomial/left_index_q_to_motor_models.json`，保留原始截距、分析来源校验值和原坐标验证指标。它们不能直接当作增量模型的实机控制精度。训练参考`[3.627,-6.019,0.028,-2.929]°`只是启动帧，不是本机精确电机零位q；只用于显式absolute输入和日志参考。手动模式默认输入Δq，不再次减参考；Manus采用操作员自己的启动零位，只按变化控制。
 
 食指不添加独立q上下限或电机位置范围检查；launch手动模式另有上述日志配对约束，非有限数、反馈错误和断流检查保留。五路固定前馈默认0A，默认KP/KD为M25=300/50、M3=200/30、M15=200/30、M1=800/30、M28=800/30，实际从`muscle_adjustment_defaults.py`读取；不为食指添加无名指的侧摆±0.05A偏置。启动等待/停止时食指五路KP/KD/I=0，其他23路默认张紧。默认手动话题为`/left_index_target_q`，日志目录为`scripts/motor_test_logs/index_q_to_motor_test/<时间>/`。
 
@@ -248,7 +248,7 @@ M9  = +2.45499 Δq0 -0.23385 Δq1 -0.05576 Δq2 +0.03790 Δq3
 M24 = -2.23981 Δq0 -0.23499 Δq1 +0.04494 Δq2 +0.01315 Δq3
 ```
 
-这是使用原带截距拟合的斜率计算位置变化，不是强制过原点重新拟合。配置`config/left_middle_q_to_motor_models.json`保存原始截距、原坐标验证指标和来源；原坐标MAE不能直接当成增量控制后的实机误差。
+这是使用原带截距拟合的斜率计算位置变化，不是强制过原点重新拟合。配置`config/q_to_motor_polynomial/left_middle_q_to_motor_models.json`保存原始截距、原坐标验证指标和来源；原坐标MAE不能直接当成增量控制后的实机误差。
 
 中指手动输入默认直接接受Δq，不再减训练参考。Manus启动时四个角各自连续稳定1秒、极差≤3°后锁定操作员零位，之后仅用相对变化。Δq全0时五台电机目标均为0，不调用Set_Zero。配置中的`q_reference=[4.396,-8.581,-0.020,0.443]°`只是整批采集启动帧，用于显式`--absolute`转换和日志参考，不是本机精确电机零位标定；Manus不使用它作为操作员零位。
 
@@ -299,7 +299,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=ring input_mode
 
 小指使用`finger:=little`或省略此参数。两种手指的直接Python入口均支持`--finger`。
 
-无名指完整系数与分电机来源保存在`config/left_ring_q_to_motor_models.json`；M10/M17来自旧批4307个正式点，M22/M21来自上述新批2170点。四q与q0的离线对比见[四q侧摆分析](scripts/motor_test_logs/data_collection/ring_data/analysis/ring_distribution/SIDE_FOUR_Q.md)。未执行新的物理标定。
+无名指完整系数与分电机来源保存在`config/q_to_motor_polynomial/left_ring_q_to_motor_models.json`；M10/M17来自旧批4307个正式点，M22/M21来自上述新批2170点。四q与q0的离线对比见[四q侧摆分析](scripts/motor_test_logs/data_collection/ring_data/analysis/ring_distribution/SIDE_FOUR_Q.md)。未执行新的物理标定。
 
 下列未指定`finger`的示例均选择小指。
 
@@ -348,7 +348,7 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py \
 | `finger` | `little` | `thumb`拇指；`index`食指；`middle`中指；`ring`无名指；`little`小指；`both`双指；`three`三指；`four`四指；`five`五指，自动选择模型和Manus角度列 |
 | `input_mode` | `1` | `1`/`manual`手动；`2`/`manus`左手套遥操 |
 | `manual_coupling` | `reject` | 仅手动模式：按q0/q1条件检查q2/q3配对；`off`恢复原行为 |
-| `coupling_reference` | 空 | 空使用`config/manual_joint_coupling.json`，可指定其他Δq参考文件 |
+| `coupling_reference` | 空 | 空使用`config/calibration/manual_joint_coupling.json`，可指定其他Δq参考文件 |
 | `start_glove_node` | `true` | 仅Manus模式生效；启动双流发布节点 |
 | `manus_topic` | `/glove_joint_data` | 48维Manus角度话题 |
 | `manus_raw_topic` | `/glove_joint_data_raw_skeleton` | 左手在线检测话题 |
@@ -374,7 +374,7 @@ source install/setup.bash
 python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_test.py" --relative
 ```
 
-默认自动启动左手SDK驱动，连接信息读取`config/left_hand_device_config.json`。脚本先发送完整28路纯电流帧以获取反馈；小指四路为0电流，其他24路为默认张紧电流。SDK收到指令才返回反馈，因此启动不是被动等待。
+默认自动启动左手SDK驱动，连接信息读取`config/devices/left_hand_device_config.json`。脚本先发送完整28路纯电流帧以获取反馈；小指四路为0电流，其他24路为默认张紧电流。SDK收到指令才返回反馈，因此启动不是被动等待。
 
 收到反馈后，终端输入四个相对角度，例如：
 
@@ -406,7 +406,7 @@ launch、直接Python控制和映射脚本均默认输入相对角度，无需�
 
 当前系数使用20261020的原始电机feedback标签，并根据用户指定零位重新拟合。零位目标仍通过普通位控下发，此脚本不调用`Set_Zero`。每次预紧归零后应保持相同的物理参考；单纯读数均为0不能验证其余姿态的映射精度。
 
-本次零位约束没有解决侧摆旧数据中的位置分歧。M20仅使用q0时，线性模型五折电机位置MAE约15.08°、二次约13.24°，不能将本次更新视为侧摆精度已改善。当前系数和验证指标见[小指配置](config/left_little_q_to_motor_models.json)。
+本次零位约束没有解决侧摆旧数据中的位置分歧。M20仅使用q0时，线性模型五折电机位置MAE约15.08°、二次约13.24°，不能将本次更新视为侧摆精度已改善。当前系数和验证指标见[小指配置](config/q_to_motor_polynomial/left_little_q_to_motor_models.json)。
 
 ## 控制参数
 

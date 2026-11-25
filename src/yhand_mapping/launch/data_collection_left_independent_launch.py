@@ -17,7 +17,7 @@ COMMAND_TOPIC = "/yhand_left_cmd"
 
 
 def _load_hand_device_config() -> str:
-    config_file = Path(__file__).resolve().parent.parent / "config" / f"{HAND}_hand_device_config.json"
+    config_file = Path(__file__).resolve().parent.parent / "config" / "devices" / f"{HAND}_hand_device_config.json"
     config = json.loads(config_file.read_text(encoding="utf-8"))
     lines = [f"PC_IP: {config['pc_ip']}", f"SN: {config['sn']}", "Boards:"]
     for board in config["boards"]:

@@ -247,9 +247,9 @@ pred_m=...
 
 ---
 
-## 8. 和 five_finger_delta 的区别
+## 8. 与历史五指 delta 模型的区别
 
-`five_finger_delta_mapping_main.py`：
+历史五指 delta 模型使用以下输入和输出。
 
 ```text
 input = [q_now, q_prev, m_prev, dq]
@@ -257,7 +257,7 @@ output = delta_m
 pred_m = m_prev + delta_m
 ```
 
-当前脚本：
+当前模型使用以下输入和输出。
 
 ```text
 input = [history_m, target_q]
@@ -265,4 +265,4 @@ output = target_m
 pred_m = target_m
 ```
 
-因此同一个 checkpoint 不能在这两个脚本之间直接混用。
+这两种模型的 checkpoint 格式不同，需要使用与各自输入和输出匹配的权重。

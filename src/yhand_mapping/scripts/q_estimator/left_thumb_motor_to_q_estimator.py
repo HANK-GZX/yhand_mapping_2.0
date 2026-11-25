@@ -21,7 +21,7 @@ from left_little_q_to_motor import FINGER_SPECS
 
 
 PACKAGE = SCRIPTS.parent
-MODEL_PATH = PACKAGE / 'config/left_thumb_motor_to_q_estimator.json'
+MODEL_PATH = PACKAGE / 'config/motor_to_q_polynomial/left_thumb_motor_to_q_estimator.json'
 MOTOR_IDS = (4, 6, 7, 8, 14, 27)
 Q_NAMES = tuple(f'left_thumb_q{i}' for i in range(4))
 Q_ZERO = (-3.0, 42.0, 40.0, -36.0)
@@ -184,7 +184,7 @@ def fit_model(args):
     else:
         from left_hand_motor_to_q_estimator import load_finger_data
         q, m, metadata, provenance = load_finger_data(collection, finger, args.refresh_cache)
-        forward = json.loads((PACKAGE/f'config/left_{finger}_q_to_motor_models.json').read_text(encoding='utf-8'))
+        forward = json.loads((PACKAGE/f'config/q_to_motor_polynomial/left_{finger}_q_to_motor_models.json').read_text(encoding='utf-8'))
         q_zero, reference_source = forward['q_reference'], forward['q_reference_source']
     motor_ids = tuple(FINGER_SPECS[finger]['motor_inputs'])
     dimension = len(motor_ids)

@@ -89,18 +89,24 @@ def load_finger_data(collection, finger, refresh=False):
         'active_mode': 'xy', 'mixed_session_training': False}
 
 
+def polynomial_model_dir(model_dir):
+    grouped = model_dir/'motor_to_q_polynomial'
+    return grouped if grouped.is_dir() else model_dir
+
+
 def load_models(model_dir, selected=FINGERS, model=None):
     models = {}
     if model == 'mlp' and tuple(selected) == ('thumb',):
         raise ValueError('本次MLP仅训练食指/中指/无名指/小指，拇指请用auto/linear/quadratic')
+    polynomial_dir = polynomial_model_dir(model_dir)
     for finger in selected:
         filename = f'left_{finger}_motor_to_q_estimator.json'
-        path = model_dir/filename
+        path = polynomial_dir/filename
         chosen = model
         if model == 'mlp':
             if finger in FOUR_FINGERS:
                 candidate = model_dir/'motor_to_q_mlp'/filename
-                path = candidate if candidate.is_file() else path
+                path = candidate if candidate.is_file() else model_dir/filename
             else:
                 # In five-finger mode the untrained thumb keeps its existing default.
                 chosen = None
@@ -263,10 +269,11 @@ def main(argv=None):
         if args.command == 'fit':
             if args.finger == 'five' and args.collection_dir is not None:
                 raise ValueError('--collection-dir仅用于单指')
+            output_dir = polynomial_model_dir(args.model_dir)
             for finger in selected:
                 collection = args.collection_dir or args.data_root/COLLECTIONS[finger]
                 fit_model(argparse.Namespace(finger=finger, collection_dir=collection,
-                    refresh_cache=args.refresh_cache, output=args.model_dir/f'left_{finger}_motor_to_q_estimator.json'))
+                    refresh_cache=args.refresh_cache, output=output_dir/f'left_{finger}_motor_to_q_estimator.json'))
             return 0
         models = load_models(args.model_dir, selected, None if args.model == 'auto' else args.model)
         count = sum(len(m.motor_ids) for m in models.values())

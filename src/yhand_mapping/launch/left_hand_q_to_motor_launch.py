@@ -37,7 +37,7 @@ def _launch_setup(context):
     mode = {'1':'manual','2':'manus','manual':'manual','manus':'manus'}[value('input_mode')]
     coupling_mode = LaunchConfiguration('manual_coupling', default='reject').perform(context)
     coupling_reference = (LaunchConfiguration('coupling_reference', default='').perform(context).strip()
-                          or str(scripts.parent/'config/manual_joint_coupling.json'))
+                          or str(scripts.parent/'config/calibration/manual_joint_coupling.json'))
     if coupling_mode not in ('off', 'reject'):
         raise ValueError('manual_coupling必须为off或reject')
     joint_topic = (value('joint_angle_topic').strip() or f'/left_{finger}_target_q') if mode=='manual' else ''
@@ -142,7 +142,7 @@ def generate_launch_description():
         DeclareLaunchArgument('manual_coupling',default_value='reject',choices=['off','reject'],
                               description='Mode 1: reject unsupported q2/q3 pairs conditioned on q0/q1; off keeps unrestricted input'),
         DeclareLaunchArgument('coupling_reference',default_value='',
-                              description='Optional delta-q tuple reference JSON; empty uses config/manual_joint_coupling.json'),
+                              description='Optional delta-q tuple reference JSON; empty uses config/calibration/manual_joint_coupling.json'),
         DeclareLaunchArgument('model',default_value='linear',choices=['linear','mlp'],
                               description='linear: existing calibration policy; mlp: trained neural networks'),
         DeclareLaunchArgument('model_file',default_value='',

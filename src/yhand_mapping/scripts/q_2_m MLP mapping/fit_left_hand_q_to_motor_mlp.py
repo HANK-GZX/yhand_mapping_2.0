@@ -173,7 +173,7 @@ def validate(q, y, combo, *, epochs, width, seed, input_weights=None, priority_p
 def fit_finger(finger, args, report_dir):
     print(f'{finger}: loading paired data', flush=True)
     q_absolute, y, meta, provenance = load_data(args.data_root.resolve(), finger, args.refresh_cache)
-    base_path = PACKAGE/f'config/left_{finger}_q_to_motor_models.json'
+    base_path = PACKAGE/f'config/q_to_motor_polynomial/left_{finger}_q_to_motor_models.json'
     base = json.loads(base_path.read_text())
     reference = base['q_reference']
     q = delta_angles(q_absolute, reference)

@@ -47,7 +47,7 @@ except Exception as exc:  # pragma: no cover - runtime dependency check
     raise RuntimeError("Unable to import compute_non_thumb_q16 from replace_right_non_thumb_q_from_skeleton.py") from exc
 
 try:
-    from five_finger_delta_mapping_main import (
+    from five_finger_delta_models import (
         DEFAULT_FINGER_ORDER,
         FINGER_DEFAULTS_BY_HAND,
         MOTOR_CMD_OFFSET_MAP_DEFAULTS,
@@ -61,7 +61,7 @@ try:
         _parse_q_offset_map_json,
     )
 except Exception as exc:  # pragma: no cover - runtime dependency check
-    raise RuntimeError("Unable to import five_finger_delta_mapping_main helpers") from exc
+    raise RuntimeError("Unable to import five_finger_delta_models helpers") from exc
 
 try:
     from wrist_angle_motor_control import (

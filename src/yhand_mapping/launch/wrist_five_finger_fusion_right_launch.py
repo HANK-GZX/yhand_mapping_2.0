@@ -324,7 +324,7 @@ def _launch_setup(context):
 def generate_launch_description():
     launch_file = Path(__file__).resolve()
     project_root = launch_file.parent.parent
-    default_config = project_root / "config" / "right_hand_device_config.json"
+    default_config = project_root / "config" / "devices" / "right_hand_device_config.json"
 
     return LaunchDescription(
         [

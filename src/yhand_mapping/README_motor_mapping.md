@@ -35,7 +35,7 @@
 | 小指外展 | 20 | 6 |
 | 小指内收 | 18 | 4 |
 
-左右手的腕部通道都为 `5,12,19,26`，其余 24 路为手指电机。边界采集、数采、肌肉调节、位置测试、软件标零、回放、腕部控制和五指模型映射均使用当前编号。
+左右手的腕部通道都为 `5,12,19,26`，其余 24 路为手指电机。边界采集、数采、位置测试、软件标零、回放、腕部控制和五指模型映射均使用当前编号。
 
 ## 参数和模型
 
@@ -60,7 +60,6 @@
 新记录的 CSV 表头、XLSX 行号和手动输入的电机编号使用本表。读取旧接线下记录的文件时，需要显式指定源编号版本：
 
 - CSV 数采：`data_collection_from_motor_feedback_csv_launch.py source_motor_map:=legacy`，或脚本参数 `--source-motor-map legacy`。
-- XLSX / CSV 回放：`right_24_motor_position_replay_from_xlsx_launch.py source_motor_map:=legacy`，或脚本参数 `--source-motor-map legacy`。
 - 离线预处理：`scripts/mp/preprocess_raw.py --hand left --motor-map legacy`。输出统一按当前 24 路手指通道排序，再交给 `preprocess_thumb.py --hand left`，按模型肌肉轴顺序提取拇指。
 
 这些选项默认 `current`，转换只作用于读取到的命令，不改写源文件。显式设置的 `exclude_motor_ids` 和模型绑定参数始终使用当前编号。

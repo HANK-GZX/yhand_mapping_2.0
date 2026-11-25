@@ -100,7 +100,7 @@ ros2 launch yhand_mapping data_collection_left_independent_launch.py \
 - Driver 节点名（左/右不同）
 - cmd topic（`/yhand_left_cmd` / `/yhand_right_cmd`）
 - feedback topic（`/yhand_left_feedback` / `/yhand_right_feedback`）
-- 设备 SN / Board IP / Port 分别读取 `config/left_hand_device_config.json` 和 `config/right_hand_device_config.json`
+- 设备 SN / Board IP / Port 分别读取 `config/devices/left_hand_device_config.json` 和 `config/devices/right_hand_device_config.json`
 
 这样可以做到：左手异常退出不直接影响右手进程。
 
@@ -627,7 +627,7 @@ ros2 launch
 
 - 保留当前数采的采样与落盘逻辑（`process/result`、`point_log.csv`、`run_summary.json`）。
 - 不再使用自动随机采样/单电机采点。
-- 改为逐行读取 `five_finger_delta_mapping_main.py` 录制的 `motor_feedback` CSV。
+- 逐行读取电机反馈 CSV，兼容已有的五指遥操录制文件。
 - 每一行作为一个“整手 24 电机组合位控点”执行采集。
 - 默认关闭原先 `_execute_point` 的对侧放线/回收流程（纯组合位控）；如需兼容旧流程可手动开启参数。
 

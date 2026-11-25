@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 
-DEFAULT_REFERENCE = Path(__file__).resolve().parents[1] / 'config/manual_joint_coupling.json'
+DEFAULT_REFERENCE = Path(__file__).resolve().parents[1] / 'config/calibration/manual_joint_coupling.json'
 
 
 class JointCouplingError(ValueError):

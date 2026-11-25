@@ -43,12 +43,12 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_t
 
 两份离线实验模型均按 12 个采集组合分别拟合四个手套角到六路电机反馈的映射。
 
-- [普通最小二乘模型](../../config/experiments/left_thumb_combo_q_to_motor_linear.json)逐组独立拟合。
-- [任务方向约束模型](../../config/experiments/left_thumb_task_combo_q_to_motor_linear.json)记录了 q2/q3 伸屈、q0 侧摆和 `opp_on` 下 q1 收放线的拟合约束。实际系数中有 3 个 `opp_on` 组合的 M14 q1 斜率小于其他电机的最大绝对 q1 斜率。
+- [普通最小二乘模型](../../config/q_to_motor_polynomial/left_thumb_combo_q_to_motor_linear.json)逐组独立拟合。
+- [任务方向约束模型](../../config/q_to_motor_polynomial/left_thumb_task_combo_q_to_motor_linear.json)记录了 q2/q3 伸屈、q0 侧摆和 `opp_on` 下 q1 收放线的拟合约束。实际系数中有 3 个 `opp_on` 组合的 M14 q1 斜率小于其他电机的最大绝对 q1 斜率。
 
 从 `combos` 中按采集工况选组。输入 `q` 为四个绝对手套角，单位为度。
 预测式为 `m = motor_at_q_center_deg + motor_per_joint_deg @ (q - q_center_deg)`，其中 `@` 表示矩阵乘法。
 输出顺序为 M4、M6、M7、M8、M14、M27，电机位置的正增量表示放线。
 `recorded_position_motor_ids` 和 `passive_reference_motor_ids` 分别记录该组的主动位置路和被动参考路。
 
-`thumb_version:=v4` 加载 [V4 遥操模型](../../config/experiments/left_thumb_linear_v4.json)。
+`thumb_version:=v4` 加载 [V4 遥操模型](../../config/q_to_motor_polynomial/left_thumb_linear_v4.json)。

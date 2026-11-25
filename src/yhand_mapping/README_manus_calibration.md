@@ -15,7 +15,7 @@
 1. ROS2 工作空间已编译并 `source`。
 2. `devices_pkg.msg` 可正常导入。
 3. 使用 launch 方式时，系统已安装 `gnome-terminal`。
-4. `config/left_hand_device_config.json` 中左手设备连接参数正确。
+4. `config/devices/left_hand_device_config.json` 中左手设备连接参数正确。
 
 ## 2. 启动方式
 

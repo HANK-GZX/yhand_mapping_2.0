@@ -24,7 +24,7 @@ def generate_launch_description():
     package = Path(get_package_share_directory('yhand_mapping'))
     defaults = {
         'feedback_topic': '/yhand_left_feedback',
-        'model_file': str(package/'config/left_thumb_motor_to_q_estimator.json'),
+        'model_file': str(package/'config/motor_to_q_polynomial/left_thumb_motor_to_q_estimator.json'),
         'model': 'quadratic', 'q_topic': '/left_thumb_estimated_q',
         'relative_q_topic': '/left_thumb_estimated_q_relative',
         'joint_state_topic': '/left_thumb_estimated_joint_states',

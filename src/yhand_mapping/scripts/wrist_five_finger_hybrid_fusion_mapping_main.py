@@ -45,17 +45,9 @@ try:
 except Exception as exc:  # pragma: no cover - runtime dependency check
     raise RuntimeError("Unable to import devices_pkg.msg.YHandMsg. Did you source install/setup.bash?") from exc
 
-try:
-    import five_finger_ring_curl_thumb_prev_m_target_q_mapping_main as hybrid_mod
-except Exception as exc:  # pragma: no cover - runtime dependency check
-    raise RuntimeError("Unable to import five_finger hybrid mapping helpers") from exc
-
-from hand_motor_map import (
-    WRIST_MOTOR_IDS_BY_HAND,
-)
-
-thumb_mod = hybrid_mod.thumb_mod
-ring_mod = hybrid_mod.curl_mod
+import non_thumb_curl_models as curl_mod
+import thumb_prev_m_target_q_mlp_mapping_main as thumb_mod
+from hand_motor_map import WRIST_MOTOR_IDS_BY_HAND
 
 try:
     from wrist_angle_motor_control import (
@@ -97,6 +89,21 @@ WRIST_MOTOR_IDS_BY_HAND = {
     "left": LEFT_WRIST_MOTOR_IDS,
     "right": RIGHT_WRIST_MOTOR_IDS,
 }
+
+THUMB_FINGER = "thumb"
+NON_THUMB_FINGERS = curl_mod.DEFAULT_FINGER_ORDER
+MOTOR_FEEDBACK_LIMITS_LEFT_DEFAULT = dict(thumb_mod.MOTOR_FEEDBACK_LIMITS_LEFT)
+MOTOR_FEEDBACK_LIMITS_RIGHT_DEFAULT = dict(thumb_mod.MOTOR_FEEDBACK_LIMITS_RIGHT)
+Q_OFFSET_MAP_DEFAULT = {
+    "left": {i: 0.0 for i in range(20)},
+    "right": {i: 0.0 for i in range(20)},
+}
+MOTOR_CMD_OFFSET_MAP_DEFAULT = {
+    "left": {},
+    "right": {},
+}
+RING_EXT_CMD_OFFSET_BY_HAND = {'left': {10: 20.0}, 'right': {24: 20.0}}
+RING_SIDE_SWING_CMD_OFFSET_BY_HAND = {'left': {21: 20.0, 22: 20.0}, 'right': {7: 20.0, 8: 20.0}}
 
 
 def _now_sec() -> float:
@@ -182,6 +189,67 @@ def _load_config_file(path: str) -> Dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _non_thumb_enable_default(raw):
+    if raw is None:
+        return "true"
+    text = str(raw).strip()
+    return text if text else "true"
+
+
+def _build_thumb_spec(args, hand: str, script_dir: Path):
+    build_args = args
+    if hand == "left":
+        right_defaults = thumb_mod.FINGER_DEFAULTS_BY_HAND["right"][THUMB_FINGER]
+        thumb_enable_raw = str(getattr(args, "thumb_enable", "")).strip() or str(getattr(args, "enable_model", "")).strip()
+        thumb_ckpt_raw = str(getattr(args, "thumb_model_ckpt", "")).strip() or str(getattr(args, "model_ckpt", "")).strip()
+        thumb_motor_ids_raw = str(getattr(args, "thumb_model_motor_ids", "")).strip() or str(getattr(args, "model_motor_ids", "")).strip()
+        thumb_q_indices_raw = str(getattr(args, "thumb_q_indices", "")).strip() or str(getattr(args, "q_indices", "")).strip()
+        thumb_mirror_raw = (
+            str(getattr(args, "thumb_mirror_right_from_left", "")).strip()
+            or str(getattr(args, "mirror_right_from_left", "")).strip()
+        )
+
+        build_args = SimpleNamespace(**vars(args))
+        if not thumb_enable_raw:
+            build_args.thumb_enable = "true"
+        if not thumb_ckpt_raw:
+            build_args.thumb_model_ckpt = str(
+                thumb_mod._default_model_ckpt_from_parts(script_dir, right_defaults["model_ckpt_rel_parts"])
+            )
+        if not thumb_motor_ids_raw:
+            build_args.thumb_model_motor_ids = str(right_defaults["motor_ids_csv"])
+        if not thumb_q_indices_raw:
+            build_args.thumb_q_indices = str(right_defaults["q_indices_csv"])
+        if not thumb_mirror_raw:
+            build_args.thumb_mirror_right_from_left = "true"
+
+    specs = thumb_mod._build_finger_specs(args=build_args, hand=hand, script_dir=script_dir)
+    return specs[THUMB_FINGER]
+
+
+def _build_non_thumb_specs(args, script_dir: Path):
+    build_args = SimpleNamespace(
+        finger="ring",
+        model_ckpt="",
+        curl_meta="",
+        model_motor_ids="",
+        q_indices="",
+        mirror_left_from_right="true",
+    )
+    for finger in NON_THUMB_FINGERS:
+        setattr(build_args, f"enable_{finger}", _non_thumb_enable_default(getattr(args, f"enable_{finger}", None)))
+        setattr(build_args, f"{finger}_model_ckpt", getattr(args, f"{finger}_model_ckpt", None))
+        setattr(build_args, f"{finger}_curl_meta", getattr(args, f"{finger}_curl_meta", None))
+        setattr(build_args, f"{finger}_model_motor_ids", getattr(args, f"{finger}_model_motor_ids", None))
+        setattr(build_args, f"{finger}_q_indices", getattr(args, f"{finger}_q_indices", None))
+        setattr(
+            build_args,
+            f"{finger}_mirror_left_from_right",
+            getattr(args, f"{finger}_mirror_left_from_right", None),
+        )
+    return curl_mod._build_finger_specs(args=build_args, script_dir=script_dir)
+
+
 class WristFiveFingerHybridFusionNode(Node):
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -234,9 +302,9 @@ class WristFiveFingerHybridFusionNode(Node):
         self.max_step_beta_deg = max(float(args.max_step_beta_deg), 0.0)
         self.use_non_thumb_raw_skeleton_q = bool(args.non_thumb_q_from_raw_skeleton)
 
-        self.device = ring_mod._resolve_device(str(args.device or "auto").strip().lower())
+        self.device = curl_mod._resolve_device(str(args.device or "auto").strip().lower())
         self.hand_glove_slice = (
-            hybrid_mod.LEFT_HAND_GLOVE_SLICE if self.hand == "left" else hybrid_mod.RIGHT_HAND_GLOVE_SLICE
+            thumb_mod.LEFT_HAND_GLOVE_SLICE if self.hand == "left" else thumb_mod.RIGHT_HAND_GLOVE_SLICE
         )
         self.motor_offsets_deg = self._load_motor_offsets(str(args.motor_offsets_json))
         self.q_offsets_this_hand = self._load_q_offsets(str(args.q_offset_map_json))
@@ -250,8 +318,8 @@ class WristFiveFingerHybridFusionNode(Node):
         self.wrist_motor_set = set(self.wrist_motor_ids)
 
         script_dir = Path(__file__).resolve().parent
-        thumb_spec = hybrid_mod._build_thumb_spec(args=args, hand=self.hand, script_dir=script_dir)
-        non_thumb_specs = hybrid_mod._build_non_thumb_specs(args=args, script_dir=script_dir)
+        thumb_spec = _build_thumb_spec(args=args, hand=self.hand, script_dir=script_dir)
+        non_thumb_specs = _build_non_thumb_specs(args=args, script_dir=script_dir)
         self.thumb_model = self._load_thumb_model(thumb_spec)
         self.non_thumb_models = self._load_non_thumb_models(non_thumb_specs)
         self.controlled_finger_motor_ids = self._build_controlled_motor_ids()
@@ -378,14 +446,14 @@ class WristFiveFingerHybridFusionNode(Node):
         if cli_json.strip():
             parsed = thumb_mod._parse_q_offset_map_json(cli_json, "--q-offset-map-json")
             return {int(k): float(v) for k, v in parsed.get(self.hand, {}).items()}
-        defaults = hybrid_mod.Q_OFFSET_MAP_DEFAULT.get(self.hand, {})
+        defaults = Q_OFFSET_MAP_DEFAULT.get(self.hand, {})
         return {int(k): float(v) for k, v in dict(defaults).items()}
 
     def _load_motor_cmd_offsets(self, cli_json: str) -> Dict[int, float]:
         if cli_json.strip():
             parsed = thumb_mod._parse_motor_cmd_offset_map_json(cli_json, "--motor-cmd-offset-map-json")
             return {int(k): float(v) for k, v in parsed.get(self.hand, {}).items()}
-        defaults = hybrid_mod.MOTOR_CMD_OFFSET_MAP_DEFAULT.get(self.hand, {})
+        defaults = MOTOR_CMD_OFFSET_MAP_DEFAULT.get(self.hand, {})
         return {int(k): float(v) for k, v in dict(defaults).items()}
 
     def _load_motor_limits(
@@ -400,7 +468,7 @@ class WristFiveFingerHybridFusionNode(Node):
                     "--motor-feedback-limits-left-json",
                 )
             else:
-                limits_left = dict(hybrid_mod.MOTOR_FEEDBACK_LIMITS_LEFT_DEFAULT)
+                limits_left = dict(MOTOR_FEEDBACK_LIMITS_LEFT_DEFAULT)
             raw_limits, mode = thumb_mod._build_motor_pos_limit_map(hand=self.hand, limits_left=limits_left)
         else:
             if right_limits_json.strip():
@@ -409,7 +477,7 @@ class WristFiveFingerHybridFusionNode(Node):
                     "--motor-feedback-limits-right-json",
                 )
             else:
-                limits_right = dict(hybrid_mod.MOTOR_FEEDBACK_LIMITS_RIGHT_DEFAULT)
+                limits_right = dict(MOTOR_FEEDBACK_LIMITS_RIGHT_DEFAULT)
             raw_limits, mode = thumb_mod._build_motor_pos_limit_map(hand=self.hand, limits_right=limits_right)
         self._motor_pos_limit_mode = str(mode)
         return {int(k): (float(v[0]), float(v[1])) for k, v in raw_limits.items()}
@@ -420,7 +488,7 @@ class WristFiveFingerHybridFusionNode(Node):
         loader = SimpleNamespace(hand=self.hand, device=self.device)
         bundle = thumb_mod.PrevMTargetQMLPMappingNode._load_finger_model(
             loader,
-            name=hybrid_mod.THUMB_FINGER,
+            name=THUMB_FINGER,
             spec=thumb_spec,
         )
         if any(int(mid) in self.wrist_motor_set for mid in bundle["motor_ids"]):
@@ -431,15 +499,15 @@ class WristFiveFingerHybridFusionNode(Node):
 
     def _load_non_thumb_models(self, specs: Dict[str, dict]) -> Dict[str, dict]:
         out: Dict[str, dict] = {}
-        for finger in hybrid_mod.NON_THUMB_FINGERS:
+        for finger in NON_THUMB_FINGERS:
             spec = specs.get(finger, {"enabled": False})
             if not spec.get("enabled", False):
                 continue
-            loader = SimpleNamespace(hand=self.hand, device=self.device)
-            bundle = ring_mod.MultiFingerCurlMultiheadMLPMappingNode._load_finger_model(
-                loader,
+            bundle = curl_mod.load_finger_model(
                 finger=finger,
                 spec=spec,
+                hand=self.hand,
+                device=self.device,
             )
             overlap = [int(mid) for mid in bundle["controlled_motor_ids"] if int(mid) in self.wrist_motor_set]
             if overlap:
@@ -453,7 +521,7 @@ class WristFiveFingerHybridFusionNode(Node):
         used: Dict[int, str] = {}
         if self.thumb_model is not None:
             for motor_id in self.thumb_model["motor_ids"]:
-                used[int(motor_id)] = hybrid_mod.THUMB_FINGER
+                used[int(motor_id)] = THUMB_FINGER
         for finger, bundle in self.non_thumb_models.items():
             for motor_id in bundle["controlled_motor_ids"]:
                 prev = used.get(int(motor_id))
@@ -690,7 +758,7 @@ class WristFiveFingerHybridFusionNode(Node):
         if raw_chunk is None or not self.use_non_thumb_raw_skeleton_q or not self.non_thumb_models:
             return
         try:
-            q16_map = ring_mod.compute_non_thumb_q16(list(raw_chunk))
+            q16_map = curl_mod.compute_non_thumb_q16(list(raw_chunk))
         except Exception:
             return
         now = _now_sec()
@@ -759,8 +827,8 @@ class WristFiveFingerHybridFusionNode(Node):
         if str(finger) != "ring":
             return 0.0
         motor_id = int(motor_id)
-        return float(hybrid_mod.RING_EXT_CMD_OFFSET_BY_HAND.get(self.hand, {}).get(motor_id, 0.0)) + float(
-            hybrid_mod.RING_SIDE_SWING_CMD_OFFSET_BY_HAND.get(self.hand, {}).get(motor_id, 0.0)
+        return float(RING_EXT_CMD_OFFSET_BY_HAND.get(self.hand, {}).get(motor_id, 0.0)) + float(
+            RING_SIDE_SWING_CMD_OFFSET_BY_HAND.get(self.hand, {}).get(motor_id, 0.0)
         )
 
     def _hold_last_cmd_for_motor_ids(
@@ -842,7 +910,7 @@ class WristFiveFingerHybridFusionNode(Node):
         delta_shift: np.ndarray,
         fb_abs: np.ndarray,
     ) -> None:
-        for finger in hybrid_mod.NON_THUMB_FINGERS:
+        for finger in NON_THUMB_FINGERS:
             if finger not in self.non_thumb_models:
                 continue
             bundle = self.non_thumb_models[finger]
@@ -860,7 +928,7 @@ class WristFiveFingerHybridFusionNode(Node):
                 q0 = float(raw_q[0])
                 if self.hand == "left" and bundle["mirror_left_from_right"]:
                     q0 = -q0
-                curl, q_cal = ring_mod.compute_curl(raw_q[1], raw_q[2], raw_q[3], bundle["curl_meta"])
+                curl, q_cal = curl_mod.compute_curl(raw_q[1], raw_q[2], raw_q[3], bundle["curl_meta"])
                 model_bundle = bundle["model_bundle"]
                 if model_bundle["model_kind"] == "q0_curl_multihead":
                     x_curl = model_bundle["scalers"]["x_curl"].transform(np.asarray([[curl]], dtype=np.float32))
@@ -913,7 +981,7 @@ class WristFiveFingerHybridFusionNode(Node):
                     - float(self.last_applied_wrist_delta[idx])
                     - float(self.motor_offsets_deg[idx])
                 )
-                if abs(pred_cmd_local - prev_cmd_local) <= ring_mod.CMD_POSITION_HOLD_DEADBAND_DEG:
+                if abs(pred_cmd_local - prev_cmd_local) <= curl_mod.CMD_POSITION_HOLD_DEADBAND_DEG:
                     pred_cmd_local = prev_cmd_local
                 pos_abs = pred_cmd_local + float(wrist_delta[idx])
                 pos_abs += float(self.motor_offsets_deg[idx])
@@ -975,12 +1043,12 @@ class WristFiveFingerHybridFusionNode(Node):
                 self.tor_idle_latched[idx] = False
                 continue
 
-            if ring_mod._is_side_swing_motor_id(motor_id):
-                enter_deadband_deg = float(ring_mod.SIDE_SWING_TOR_ACTIVE_DIRECTION_ENTER_DEADBAND_DEG)
-                exit_deadband_deg = float(ring_mod.SIDE_SWING_TOR_ACTIVE_DIRECTION_EXIT_DEADBAND_DEG)
+            if curl_mod._is_side_swing_motor_id(motor_id, self.hand):
+                enter_deadband_deg = float(curl_mod.SIDE_SWING_TOR_ACTIVE_DIRECTION_ENTER_DEADBAND_DEG)
+                exit_deadband_deg = float(curl_mod.SIDE_SWING_TOR_ACTIVE_DIRECTION_EXIT_DEADBAND_DEG)
             else:
-                enter_deadband_deg = float(ring_mod.TOR_ACTIVE_DIRECTION_ENTER_DEADBAND_DEG)
-                exit_deadband_deg = float(ring_mod.TOR_ACTIVE_DIRECTION_EXIT_DEADBAND_DEG)
+                enter_deadband_deg = float(curl_mod.TOR_ACTIVE_DIRECTION_ENTER_DEADBAND_DEG)
+                exit_deadband_deg = float(curl_mod.TOR_ACTIVE_DIRECTION_EXIT_DEADBAND_DEG)
 
             current_pos = float(self.latest_feedback_matrix[idx, 0])
             if not np.isfinite(current_pos):
@@ -992,45 +1060,15 @@ class WristFiveFingerHybridFusionNode(Node):
                 if abs_error > exit_deadband_deg:
                     self.tor_idle_latched[idx] = False
                 else:
-                    if ring_mod._is_side_swing_motor_id(motor_id):
-                        row[:] = [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ]
-                    else:
-                        row[:] = [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ]
+                    row[:] = [0.0] * 5
                     continue
 
             if abs_error <= enter_deadband_deg:
                 self.tor_idle_latched[idx] = True
-                if ring_mod._is_side_swing_motor_id(motor_id):
-                    row[:] = [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ]
-                else:
-                    row[:] = [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ]
+                row[:] = [0.0] * 5
                 continue
 
-            row[2] = ring_mod._directional_tor_active(
+            row[2] = curl_mod._directional_tor_active(
                 self.defaults_hand["tor_active"][idx],
                 self.defaults_hand["tor"][idx],
                 row[0],
@@ -1160,6 +1198,23 @@ class WristFiveFingerHybridFusionNode(Node):
         )
 
 
+def _add_thumb_args(parser: argparse.ArgumentParser):
+    parser.add_argument("--enable-model", default="", help="Legacy alias for --enable-thumb")
+    parser.add_argument("--model-ckpt", default="", help="Legacy alias for --thumb-model-ckpt")
+    parser.add_argument("--model-motor-ids", default="", help="Legacy alias for --thumb-model-motor-ids")
+    parser.add_argument("--q-indices", default="", help="Legacy alias for --thumb-q-indices")
+    parser.add_argument(
+        "--mirror-right-from-left",
+        default="",
+        help="Legacy alias for --thumb-mirror-right-from-left",
+    )
+    parser.add_argument("--enable-thumb", dest="thumb_enable", default="")
+    parser.add_argument("--thumb-model-ckpt", dest="thumb_model_ckpt", default="")
+    parser.add_argument("--thumb-model-motor-ids", dest="thumb_model_motor_ids", default="")
+    parser.add_argument("--thumb-q-indices", dest="thumb_q_indices", default="")
+    parser.add_argument("--thumb-mirror-right-from-left", dest="thumb_mirror_right_from_left", default="")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Manus wrist + five-finger hybrid fusion controller"
@@ -1205,24 +1260,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--motor-offsets-json", default="")
     parser.add_argument(
         "--motor-feedback-limits-left-json",
-        default=json.dumps(hybrid_mod.MOTOR_FEEDBACK_LIMITS_LEFT_DEFAULT, ensure_ascii=False),
+        default=json.dumps(MOTOR_FEEDBACK_LIMITS_LEFT_DEFAULT, ensure_ascii=False),
     )
     parser.add_argument(
         "--motor-feedback-limits-right-json",
-        default=json.dumps(hybrid_mod.MOTOR_FEEDBACK_LIMITS_RIGHT_DEFAULT, ensure_ascii=False),
+        default=json.dumps(MOTOR_FEEDBACK_LIMITS_RIGHT_DEFAULT, ensure_ascii=False),
     )
     parser.add_argument(
         "--q-offset-map-json",
-        default=json.dumps(hybrid_mod.Q_OFFSET_MAP_DEFAULT, ensure_ascii=False),
+        default=json.dumps(Q_OFFSET_MAP_DEFAULT, ensure_ascii=False),
     )
     parser.add_argument(
         "--motor-cmd-offset-map-json",
-        default=json.dumps(hybrid_mod.MOTOR_CMD_OFFSET_MAP_DEFAULT, ensure_ascii=False),
+        default=json.dumps(MOTOR_CMD_OFFSET_MAP_DEFAULT, ensure_ascii=False),
     )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--zero-on-exit", default="true", choices=["true", "false"])
-    hybrid_mod._add_thumb_args(parser)
-    hybrid_mod._add_non_thumb_args(parser)
+    _add_thumb_args(parser)
+    for finger in NON_THUMB_FINGERS:
+        curl_mod._add_finger_cli_args(parser, finger)
     return parser
 
 

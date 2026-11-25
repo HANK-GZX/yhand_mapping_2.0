@@ -71,7 +71,7 @@ python3 "src/yhand_mapping/scripts/q_2_m linear mapping/left_little_q_to_motor_t
 ## 输入、输出与零位
 
 网络拟合采集配对 `(q_absolute − q_reference, motor_feedback_position)`，不使用电机命令作为训练标签。
-每指的 `q_reference` 从对应 `config/left_<finger>_q_to_motor_models.json` 读取，与遥操使用同一个机器人参考零位。
+每指的 `q_reference` 从对应 `config/q_to_motor_polynomial/left_<finger>_q_to_motor_models.json` 读取，与遥操使用同一个机器人参考零位。
 先减去零位得到Δq，再按训练折的均值、标准差做标准化。电机标签不减零位，输出标准化参数仍由原始反馈位置计算。
 角度单位均为度。五指顺序为拇指、食指、中指、无名指、小指，每指四角，对应 glove48 `[8:28]`。
 

@@ -141,16 +141,3 @@ def finger_assist_motor_layout(hand, finger):
         flexors = [motors[role] for role in ("flex_shallow", "flex_deep", "flexor") if role in motors]
         layout.update(extensors=[motors["extensor"]], flexors=flexors)
     return layout
-
-
-def extensor_assist_map(hand):
-    result = {}
-    for finger in HAND_MOTOR_MAP[hand]:
-        layout = finger_assist_motor_layout(hand, finger)
-        extensors = layout["extensors"]
-        if isinstance(extensors, dict):
-            extensors = list(extensors.values())
-        for mid in extensors:
-            result[mid] = {"flexors": list(layout["flexors"])}
-        result[layout["sway_pair"][0]] = {"flexors": [layout["sway_pair"][1]]}
-    return result

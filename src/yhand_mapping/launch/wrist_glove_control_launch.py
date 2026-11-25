@@ -106,7 +106,7 @@ def _launch_setup(context):
         if not config_file.is_absolute():
             config_file = (project_root / config_file).resolve()
     else:
-        config_file = (project_root / "config" / f"{target_hand}_hand_device_config.json").resolve()
+        config_file = (project_root / "config" / "devices" / f"{target_hand}_hand_device_config.json").resolve()
 
     start_driver = _bool_from_launch_arg(LaunchConfiguration("start_driver").perform(context))
     start_glove_node = _bool_from_launch_arg(LaunchConfiguration("start_glove_node").perform(context))
@@ -466,8 +466,8 @@ def generate_launch_description():
                 default_value="",
                 description=(
                     "Optional wrist glove-control runtime JSON config. "
-                    "Leave empty to auto-select config/left_hand_device_config.json or "
-                    "config/right_hand_device_config.json from target_hand."
+                    "Leave empty to auto-select config/devices/left_hand_device_config.json or "
+                    "config/devices/right_hand_device_config.json from target_hand."
                 ),
             ),
             DeclareLaunchArgument(

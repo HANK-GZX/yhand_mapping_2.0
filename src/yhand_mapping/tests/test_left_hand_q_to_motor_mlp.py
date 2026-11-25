@@ -170,7 +170,7 @@ class MLPTests(unittest.TestCase):
         rng = np.random.default_rng(27)
         delta = rng.normal(size=(24, 4))*3+[2, 4, 6, 8]
         for finger in fit.FINGERS:
-            reference = np.asarray(json.loads((PACKAGE/f'config/left_{finger}_q_to_motor_models.json').read_text())['q_reference'])
+            reference = np.asarray(json.loads((PACKAGE/f'config/q_to_motor_polynomial/left_{finger}_q_to_motor_models.json').read_text())['q_reference'])
             absolute = delta+reference
             y = rng.normal(size=(len(delta), len(control.FINGER_SPECS[finger]['motor_inputs'])))*10+80
             original_labels = y.copy()

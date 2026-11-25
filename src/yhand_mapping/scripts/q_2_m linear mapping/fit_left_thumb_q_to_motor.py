@@ -107,7 +107,7 @@ def load(collection, refresh):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--collection-dir', type=Path, default=DEFAULT_COLLECTION)
-    parser.add_argument('--output', type=Path, default=PACKAGE/'config/left_thumb_q_to_motor_models.json')
+    parser.add_argument('--output', type=Path, default=PACKAGE/'config/q_to_motor_polynomial/left_thumb_q_to_motor_models.json')
     parser.add_argument('--q-reference', type=float, nargs=4, default=ZERO_REFERENCE,
                         help='多项式展开参考；默认原采集启动帧，不是实测电机零位')
     parser.add_argument('--refresh-cache', action='store_true')

@@ -27,8 +27,8 @@ PACKAGE_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from joint_coupling import DEFAULT_REFERENCE, JointCouplingError, JointCouplingReference
 
-THUMB_V3_MODEL_PATH = PACKAGE_DIR/'config/experiments/left_thumb_linear_coordination_v3.json'
-THUMB_V4_MODEL_PATH = PACKAGE_DIR/'config/experiments/left_thumb_linear_v4.json'
+THUMB_V3_MODEL_PATH = PACKAGE_DIR/'config/q_to_motor_polynomial/left_thumb_linear_coordination_v3.json'
+THUMB_V4_MODEL_PATH = PACKAGE_DIR/'config/q_to_motor_polynomial/left_thumb_linear_v4.json'
 THUMB_VERSION_PATHS = {'v3': THUMB_V3_MODEL_PATH, 'v4': THUMB_V4_MODEL_PATH}
 MOTOR_IDS = (11, 13, 18, 20)
 MOTOR_COUNT = 28
@@ -1045,7 +1045,7 @@ def main(argv=None):
     parser.add_argument('--thumb-combo-calibration',type=Path,
                         help='可选拇指实测combo路径；仅thumb/five，协调M4/M14/侧摆与被动伸肌')
     parser.add_argument('--defaults-path',type=Path,default=SCRIPT_DIR/'muscle_adjustment_defaults.py')
-    parser.add_argument('--device-config',type=Path,default=PACKAGE_DIR/'config/left_hand_device_config.json')
+    parser.add_argument('--device-config',type=Path,default=PACKAGE_DIR/'config/devices/left_hand_device_config.json')
     parser.add_argument('--start-driver',action=argparse.BooleanOptionalAction,default=True)
     parser.add_argument('--driver-executable',type=Path,help='可覆盖官方SDK可执行文件路径')
     parser.add_argument('--cmd-topic',default='/yhand_left_cmd')
