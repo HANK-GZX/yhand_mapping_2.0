@@ -19,15 +19,13 @@
 
 ## 2. 启动方式
 
-### 2.1 Y-Hand 电机标零
+### 2.1 Y-Hand 电机回到绝对零位
 
 ```bash
-ros2 launch yhand_mapping yhand_pretighten_launch.py
+ros2 launch yhand_mapping yhand_pretighten_launch.py target_hand:=left
 ```
 
-说明：
-- 运行期间以 `−0.05 A` 预紧；按 Ctrl+C 后停止收线、调用 SDK 设置全部 28 路当前位置为零点，再检查归零后的反馈并关闭驱动。
-- 终端会打印 28 路位置；连续 3 帧全部满足 `|pos|≤1°` 且 `error=0` 才显示“零点反馈检查通过”。失败时会报告异常电机或缺失反馈。SDK 启动归零配置仍为 `false`。
+启动后，SDK 的 `Y_Hand_M2_Demo` 持续向左手 28 路电机发送绝对位置 `0°`，统一使用 `KP=500`、`KD=10`。等待终端打印全部 28 路位置、绝对误差和错误码，确认通过后按 Ctrl+C 释放位置控制并关闭 Demo。默认容差为 ±1°，确认超时为 10 秒。
 
 ### 2.2 启动手套校准launch：
 

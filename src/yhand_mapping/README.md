@@ -17,13 +17,10 @@ ros2 launch yhand_mapping left_hand_q_to_motor_launch.py finger:=five input_mode
 
 映射、采集、标定与辅助启动的左手连接配置统一读取 `config/devices/left_hand_device_config.json`，右手统一读取 `config/devices/right_hand_device_config.json`。
 其他标定文件和模型权重的位置见 [配置目录说明](config/README.md)。
-官方设备 launch 位于 `devices_pkg/launch/`；本包的 `yhand_pretighten_launch.py` 分别读取 `left_hand_device_config.json` 和 `right_hand_device_config.json`。
-预紧脚本通过 ROS 参数向驱动传入 28 路 `max_current_limit`，默认每路 `0.5 A`，与官方 `devices_pkg/launch/yhand_launch.py` 一致；预紧指令仍为 `-0.05 A`。单独运行脚本时可用 `--max-current-limit` 后跟 28 个正数覆盖限值。
+官方设备 launch 位于 `devices_pkg/launch/`。本包的 `yhand_pretighten_launch.py` 默认控制双手回到绝对零位，可通过 `target_hand:=left`、`target_hand:=right` 或 `target_hand:=both` 切换，并读取所选手对应的设备配置。
+构建 `yhand_mapping` 时使用 `src/devices_pkg/sdk` 的官方 M2 Demo 源码生成 `Y_Hand_M2_Demo`。`scripts/yhand_pretighten.py` 启动这个可执行文件，并传入 M2 SDK 配置及所选手的连接参数。28 路的 `pos=0°` 和 `vel=0` 由 Demo 的控制循环发送，统一 `KP=500`、`KD=10`。SDK Demo 的前馈电流从零起步，随后由反馈误差积分更新。每路限流默认 `0.5 A`，单独运行脚本时可用 `--max-current-limit` 后跟 28 个正数覆盖。
+脚本读取 Demo 的 SDK 反馈，逐路打印 `M01` 到 `M28` 的实际位置、相对 `0°` 的绝对误差、错误码和到位状态。默认要求连续 3 帧均满足 28 路 `|pos|≤1°` 且 `error=0`。通过后持续保持 `0°`，10 秒内未确认则打印最新反馈并关闭 Demo。可用 `zero_tolerance` 和 `zero_timeout` 调整角度容差及等待秒数。误差直接使用多圈位置计算。
+Ctrl+C 或 SIGTERM 通知 Demo 释放位置控制。Demo 在退出前发送 0.5 秒的零增益和零电流指令。
 通用左手 q→m 控制脚本也向驱动传入相同的 28 路电流上限。本地 `Y_Hand_Node` 对未传该参数的旧 launch 使用每路 `0.5 A` 的默认值，显式 ROS 参数优先；长度或数值无效时在硬件初始化前报错退出。
-通用左手 q→m 控制和预紧脚本以 SensorData QoS（BEST_EFFORT）订阅电机反馈，与当前 SDK 一致；假驱动测试也使用相同 QoS，覆盖反馈接收、超时及停机流程。
-预紧使用本包的 `scripts/yhand_pretighten.py` 发送 `tor=-0.05`，目前仅启用左手。Ctrl+C 时先连续发送 0.5 秒的全部 28 路零电流指令，再通过一次 `pretightenforce.flag=True、torque=0` 的消息调用官方 SDK 的全部 28 路 `Set_Zero`，将停止收线后的当前位置定义为零点；随后使用零电流命令获取反馈，全部 28 路连续 3 帧满足 `|pos|≤1°` 且 `error=0` 才打印检查通过，最后关闭驱动。这是重新定义坐标，不是转回旧零位。
-
-归零反馈检查最多等待 90 秒（SDK 逐路归零在设备无应答时会阻塞），超时或失败会打印异常电机并以非零退出码关闭驱动，不宣称归零成功。驱动在此期间不会被终端的 Ctrl+C 提前结束。SIGTERM 只停止收线并关闭驱动，不触发归零。SDK 的 `Set_Zero_In_Init` 保持 `false`，其他 launch 不会因此在启动时归零。
-
-该检查使用归零请求之后收到的 ROS 反馈；SDK 反馈不含设备时间戳或归零应答标记，连续零反馈不能替代逐电机硬件应答验证。归零改变电机位置坐标，之前使用旧零点采集的 workspace 和映射数据需要与新的零点保持一致。
+通用左手 q→m 控制以 SensorData QoS（BEST_EFFORT）订阅电机反馈，与当前 SDK 一致。
 Python 工具及模型在 `scripts/`。替换 SDK 时保留本包，详见工作区根目录的 `README.md`。
