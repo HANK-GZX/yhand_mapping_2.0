@@ -1,0 +1,538 @@
+{
+  "motor_mapping_version": "new_wristband_20261008",
+  "motor_mapping_source": "新腕带下的电机&肌肉对照表.xlsx",
+  "tor_active_mode": "integral_gain",
+  "max_current_limit_a": 0.5,
+  "left": {
+    "thumb": {
+      "ext_short": {
+        "motor_id": 6,
+        "label": "拇短伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "ext_long": {
+        "motor_id": 7,
+        "label": "拇长伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_long": {
+        "motor_id": 4,
+        "label": "拇长屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 27,
+        "label": "拇展肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 8,
+        "label": "拇收肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "opposition": {
+        "motor_id": 14,
+        "label": "拇对掌肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "index": {
+      "extensor": {
+        "motor_id": 25,
+        "label": "食指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_shallow": {
+        "motor_id": 3,
+        "label": "食指指浅屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_deep": {
+        "motor_id": 15,
+        "label": "食指指深屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 28,
+        "label": "食指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 1,
+        "label": "食指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "middle": {
+      "extensor": {
+        "motor_id": 23,
+        "label": "中指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_shallow": {
+        "motor_id": 16,
+        "label": "中指指浅屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_deep": {
+        "motor_id": 2,
+        "label": "中指指深屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 24,
+        "label": "中指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 9,
+        "label": "中指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "ring": {
+      "extensor": {
+        "motor_id": 10,
+        "label": "无名指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flexor": {
+        "motor_id": 17,
+        "label": "无名指屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 21,
+        "label": "无名指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 22,
+        "label": "无名指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "little": {
+      "extensor": {
+        "motor_id": 11,
+        "label": "小指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flexor": {
+        "motor_id": 13,
+        "label": "小指屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 20,
+        "label": "小指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 18,
+        "label": "小指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "wrist": {
+      "left_front": {
+        "motor_id": 19,
+        "label": "左前手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "left_back": {
+        "motor_id": 12,
+        "label": "左后手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "right_front": {
+        "motor_id": 5,
+        "label": "右前手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "right_back": {
+        "motor_id": 26,
+        "label": "右后手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    }
+  },
+  "right": {
+    "thumb": {
+      "ext_short": {
+        "motor_id": 20,
+        "label": "拇短伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "ext_long": {
+        "motor_id": 21,
+        "label": "拇长伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_long": {
+        "motor_id": 18,
+        "label": "拇长屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 13,
+        "label": "拇展肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 22,
+        "label": "拇收肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "opposition": {
+        "motor_id": 28,
+        "label": "拇对掌肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "index": {
+      "extensor": {
+        "motor_id": 11,
+        "label": "食指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_shallow": {
+        "motor_id": 17,
+        "label": "食指指浅屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_deep": {
+        "motor_id": 1,
+        "label": "食指指深屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 14,
+        "label": "食指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 15,
+        "label": "食指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "middle": {
+      "extensor": {
+        "motor_id": 9,
+        "label": "中指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_shallow": {
+        "motor_id": 2,
+        "label": "中指指浅屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flex_deep": {
+        "motor_id": 16,
+        "label": "中指指深屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 10,
+        "label": "中指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 23,
+        "label": "中指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "ring": {
+      "extensor": {
+        "motor_id": 24,
+        "label": "无名指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flexor": {
+        "motor_id": 3,
+        "label": "无名指屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 7,
+        "label": "无名指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 8,
+        "label": "无名指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "little": {
+      "extensor": {
+        "motor_id": 25,
+        "label": "小指伸肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "flexor": {
+        "motor_id": 27,
+        "label": "小指屈肌",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "abduction": {
+        "motor_id": 6,
+        "label": "小指外展",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": 0.0,
+        "tor_active": 0.001
+      },
+      "adduction": {
+        "motor_id": 4,
+        "label": "小指内收",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    },
+    "wrist": {
+      "left_front": {
+        "motor_id": 19,
+        "label": "左前手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "left_back": {
+        "motor_id": 12,
+        "label": "左后手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "right_front": {
+        "motor_id": 5,
+        "label": "右前手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      },
+      "right_back": {
+        "motor_id": 26,
+        "label": "右后手腕",
+        "kp": 500.0,
+        "kd": 10.0,
+        "vel": 0.0,
+        "tor": -0.08,
+        "tor_active": 0.001
+      }
+    }
+  }
+}

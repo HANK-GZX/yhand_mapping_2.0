@@ -6,7 +6,7 @@
 
 - `launch/motor_position_test_launch.py`
 - `scripts/motor_position_test.py`
-- `scripts/muscle_adjustment_defaults.py`
+- [电机参数配置 `config/motor_parameter.json`](config/motor_parameter.json)
 
 ---
 
@@ -22,12 +22,6 @@ ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=left
 
 ```bash
 ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=right
-```
-
-可选关闭对抗肌辅助：
-
-```bash
-ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=left assist_enable:=false
 ```
 
 说明：
@@ -57,7 +51,7 @@ ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=left assist
 ## 3. 运行流程
 
 1. 选择电机（1-28）。
-2. 显示该电机默认参数：`vel / tor_active / kp / kd / idle_tor`。
+2. 显示该电机默认参数 `vel / tor_active(ki) / kp / kd / idle_tor`。
 3. 显示该电机当前反馈：`pos / vel / tor / kp / kd`。
 4. 输入目标位置 `pos`，执行单电机运动。
 5. 到位后保持当前位置并打印：
@@ -70,20 +64,27 @@ ros2 launch yhand_mapping motor_position_test_launch.py target_hand:=left assist
 
 ## 4. 控制规则（当前实现）
 
+默认参数分为左手 `left` 和右手 `right`，每只手下按五指和腕部分组。用条目中的 `motor_id` 对应终端里选择的电机。
+
+单电机测试的增益和速度读取各电机的配置。`tor_active_mode` 为 `integral_gain` 时，`tor_active` 是该电机的位置积分系数，默认 `0.001 A/°/帧`，设为 `0` 可关闭积分。launch 将 `max_current_limit_a`（默认 `0.5 A`）作为每路电机的限流值传给驱动。
+
 - 主动电机（你选中的电机）：
   - `pos`：终端输入
-  - `vel / tor_active / kp / kd`：读取 `muscle_adjustment_defaults.py`
+  - `vel / kp / kd` 读取该电机的配置。每次输入新目标，前馈从 `0 A` 起步
+  - 运动中，每帧有效反馈先将 `目标位置 − 反馈位置` 限在 `±30°`，再把 `tor_active × 限幅后的误差` 累加到前馈，积分补偿限制在 `±0.50 A`。收到无效反馈时补偿清零。到位后冻结并保留本次补偿，新目标、切换电机或超时时清除
 - 非主动电机：
-  - 固定纯张紧：`[0, 0, tor, 0, 0]`，其中 `tor` 读取 defaults
+  - 待机、按 `m` 切换电机及选中编号后等待目标位置时，各路按配置中的 `tor` 张紧，`kp=kd=0`。全手回零保持期间，输入新目标位置时切到单电机控制
+  - 输入有效目标位置后，直接拮抗电机才开始以 `+0.02 A` 放线，运动期间其余非主动电机为 `0 A`。非主动电机的位置增益均为 `0`，旧版 `assist_enable` 参数仅供命令兼容
+  - 确认到位后，全部 27 路非主动电机用 `-0.08 A` 张紧，包括直接拮抗电机。张紧时 `kp=kd=0`，线缆回收量取决于机构阻力和负载。伸肌与屈肌、内收与外展分别互为拮抗
 
-对抗肌辅助（默认开启）：
+连续 `30` 次新反馈检查均满足 `|error| <= 7` 时确认到位。超时上限为 `5s`。超时或反馈中断时全部输出置 `0`，按 `m` 返回待机后恢复默认张紧。
 
-- 若当前主动电机属于伸屈/侧摆映射，会在动作前短时对对抗肌施加放线扭矩
-- 放线电流按手指和肌肉角色配置，通用默认值为 `0.5 A`。放线时长根据电机类别和位移计算，类别未知时使用 `0.5 s`。
-- 支持范围：四指伸屈、四指侧摆、拇指伸屈与侧摆（双向映射）
+使用 `motor_parameter.json` 时，快照回放的固定前馈为 `0 A`。旧 Python 配置和未声明 `tor_active_mode` 的 JSON 继续用旧 `tor_active` 值作为回放前馈，单电机位置积分系数取 `0.001 A/°/帧`。
 
-判定与超时：
+## 5. 全部回0
 
-- 到位判定：`|error| <= 7` 且连续 `30` 帧
-- 单电机超时：`5s`
-- 全部回0超时：`6s`
+28 路直接发送绝对 `pos=0°`、`vel=0`、`kp=500`、`kd=10`。每路前馈电流从 `0 A` 起步，每收到一帧有效反馈就按 `前馈电流 += (0 - 反馈位置) × 0.001` 更新，积分值限制在 `±1 A`。驱动按配置执行每路限流。
+
+连续 3 帧反馈中，28 路都满足 `|pos| ≤ 1°` 且驱动错误码为 `0` 时确认到位。终端逐路打印实际位置、绝对误差和错误码。等待上限为 `10s`，反馈中断时提前结束回零并释放位置控制。
+
+按 `z` 到位后继续保持 `0°`，发出下一条运动命令或在位置输入界面按 `m` 时结束保持。按 `x` 或 Ctrl+C 回零后发送 `0.5s` 的零增益、零电流命令再退出。

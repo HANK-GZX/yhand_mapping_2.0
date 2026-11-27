@@ -13,17 +13,19 @@ import time
 
 MOTOR_COUNT = 28
 ZERO_CONFIRMATIONS = 3
+ZERO_TOLERANCE_DEG = 1.0
+ZERO_TIMEOUT_SEC = 10.0
 POSITION_FRAME = 'M2_POSITION_FRAME '
 
 
 class ZeroFeedback:
-    def __init__(self, tolerance):
+    def __init__(self, tolerance=ZERO_TOLERANCE_DEG):
         self.tolerance = tolerance
         self.motors = ()
         self.consecutive = 0
 
     def at_zero(self, position, error):
-        return math.isfinite(position) and abs(position) <= self.tolerance and error == 0
+        return position is not None and math.isfinite(position) and abs(position) <= self.tolerance and error == 0
 
     def receive(self, line):
         values = line.removeprefix(POSITION_FRAME).split()
@@ -31,12 +33,15 @@ class ZeroFeedback:
             self.consecutive = 0
             return
         try:
-            self.motors = tuple((float(values[i]), int(values[i + 1]))
-                                for i in range(0, len(values), 2))
+            motors = tuple((float(values[i]), int(values[i + 1])) for i in range(0, len(values), 2))
         except ValueError:
             self.consecutive = 0
             return
-        if all(self.at_zero(position, error) for position, error in self.motors):
+        self.record(motors)
+
+    def record(self, motors):
+        self.motors = tuple(motors)
+        if len(self.motors) == MOTOR_COUNT and all(self.at_zero(*motor) for motor in self.motors):
             self.consecutive += 1
         else:
             self.consecutive = 0
@@ -50,7 +55,10 @@ class ZeroFeedback:
                 continue
             position, error = self.motors[index]
             status = '到位' if self.at_zero(position, error) else '未到位'
-            rows.append(f'{label}  {position:+11.4f}  {abs(position):11.4f}  {error:7d}   {status}')
+            pos_text = '-' if position is None else f'{position:+.4f}'
+            distance_text = '-' if position is None else f'{abs(position):.4f}'
+            error_text = '-' if error is None else str(error)
+            rows.append(f'{label}  {pos_text:>11}  {distance_text:>11}  {error_text:>7}   {status}')
         return '\n'.join(rows)
 
 
@@ -124,9 +132,9 @@ def main():
     parser.add_argument('--max-current-limit', type=float, nargs=MOTOR_COUNT,
                         default=[0.5] * MOTOR_COUNT,
                         help='28 motor current limits in A (default: 0.5 each).')
-    parser.add_argument('--zero-tolerance', type=float, default=1.0,
+    parser.add_argument('--zero-tolerance', type=float, default=ZERO_TOLERANCE_DEG,
                         help='Maximum absolute position error in degrees (default: 1).')
-    parser.add_argument('--zero-timeout', type=float, default=10.0,
+    parser.add_argument('--zero-timeout', type=float, default=ZERO_TIMEOUT_SEC,
                         help='Seconds from SDK startup to confirm all motors at zero (default: 10).')
     args = parser.parse_args()
     if not args.demo_executable.is_file() or not os.access(args.demo_executable, os.X_OK):

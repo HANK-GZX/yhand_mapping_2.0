@@ -15,6 +15,8 @@ from pathlib import Path
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from rclpy.signals import SignalHandlerOptions
 
 try:
     from devices_pkg.msg import Motor, YHandMsg
@@ -27,23 +29,34 @@ else:
 
 
 from hand_motor_map import (
-    FINGER_MOTOR_IDS_BY_HAND, MAPPING_VERSION, finger_assist_motor_layout,
+    FINGER_MOTOR_IDS_BY_HAND, HAND_MOTOR_MAP, MAPPING_VERSION, MOTOR_COUNT,
+    WRIST_MOTOR_MAP, finger_assist_motor_layout,
 )
+from yhand_pretighten import ZERO_CONFIRMATIONS, ZERO_TIMEOUT_SEC, ZERO_TOLERANCE_DEG, ZeroFeedback
 
-MOTOR_COUNT = 28
 CONTROL_PERIOD_SEC = 0.02
 ARRIVAL_POS_TOL = 7.0
 ARRIVAL_CONFIRM_FRAMES = 30
 SINGLE_MOTOR_TIMEOUT_SEC = 5.0
+POSITION_INTEGRAL_GAIN = 0.001
+SINGLE_MOTOR_INTEGRAL_ERROR_LIMIT_DEG = 30.0
+SINGLE_MOTOR_INTEGRAL_LIMIT_A = 0.50
 RETURN_ZERO_TIMEOUT_SEC = 6.0
 REPLAY_SNAPSHOT_TIMEOUT_SEC = 6.0
 FEEDBACK_STALE_SEC = 1.0
 TOPIC_CONFLICT_CONFIRM_SEC = 2.0
 TOR_PAIR_MAX_DIFF_A = 0.1
+ANTAGONIST_RELEASE_CURRENT_A = 0.02
+ARRIVED_TENSION_CURRENT_A = -0.08
 ZERO_SWAY_RELEASE_TOR_A = 0.1
 ZERO_SWAY_RELEASE_SEC = 0.0
 ZERO_FLEXOR_RELEASE_TOR_A = 0.2
 ZERO_FLEXOR_RELEASE_SEC = 0.5
+# M2 Demo zero-position gains, integral limit, and release time.
+ZERO_KP = 500.0
+ZERO_KD = 10.0
+ZERO_INTEGRAL_LIMIT = 1.0
+ZERO_OUTPUT_RELEASE_SEC = 0.5
 SNAPSHOT_FILE_SCHEMA = "motor_position_test.snapshot.v1"
 MOTOR_FEEDBACK_RECORD_IDS_BY_HAND = dict(FINGER_MOTOR_IDS_BY_HAND)
 
@@ -962,6 +975,7 @@ def _ensure_defaults_shape(defaults_map, hand: str):
         hand_map["tor"][i] if _to_float_or_none(v) is None else float(v)
         for i, v in enumerate(tor_active)
     ]
+    hand_map["ki"] = [POSITION_INTEGRAL_GAIN] * MOTOR_COUNT
 
 
 def _load_defaults_from_py(defaults_path: Path):
@@ -979,6 +993,52 @@ def _load_defaults_from_py(defaults_path: Path):
     return defaults
 
 
+def _load_defaults_from_json(defaults_path: Path):
+    config = json.loads(defaults_path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict) or config.get("motor_mapping_version") != MAPPING_VERSION:
+        raise ValueError(f"{defaults_path}: expected motor_mapping_version={MAPPING_VERSION}")
+    tor_active_mode = config.get("tor_active_mode", "feedforward_current")
+    if tor_active_mode not in ("feedforward_current", "integral_gain"):
+        raise ValueError(f"{defaults_path}: unknown tor_active_mode={tor_active_mode!r}")
+
+    fields = ("kp", "kd", "vel", "tor", "tor_active")
+    defaults = {}
+    for hand, fingers in HAND_MOTOR_MAP.items():
+        motor_groups = {**fingers, "wrist": WRIST_MOTOR_MAP[hand]}
+        groups = config.get(hand)
+        if not isinstance(groups, dict) or groups.keys() != motor_groups.keys():
+            raise ValueError(f"{defaults_path}: {hand} must contain {', '.join(motor_groups)}")
+
+        profile = {field: [0.0] * MOTOR_COUNT for field in fields}
+        profile["ki"] = [POSITION_INTEGRAL_GAIN] * MOTOR_COUNT
+        for group, motors in motor_groups.items():
+            entries = groups[group]
+            if not isinstance(entries, dict) or entries.keys() != motors.keys():
+                raise ValueError(f"{defaults_path}: {hand}.{group} must contain {', '.join(motors)}")
+
+            for role, motor_id in motors.items():
+                entry = entries[role]
+                location = f"{defaults_path}: {hand}.{group}.{role}"
+                configured_id = entry.get("motor_id") if isinstance(entry, dict) else None
+                if type(configured_id) is not int or configured_id != motor_id:
+                    raise ValueError(f"{location}: expected motor_id={motor_id}, got {configured_id!r}")
+                idx = motor_id - 1
+                for field in fields:
+                    value = entry.get(field)
+                    if type(value) not in (float, int) or not math.isfinite(value):
+                        raise ValueError(f"{location}.{field}: expected a finite number, got {value!r}")
+                    profile[field][idx] = float(value)
+                if tor_active_mode == "integral_gain":
+                    gain = profile["tor_active"][idx]
+                    if gain < 0.0:
+                        raise ValueError(f"{location}.tor_active: integral gain must be nonnegative, got {gain}")
+                    profile["ki"][idx] = gain
+                    # Snapshot replay reads the normalized feedforward field.
+                    profile["tor_active"][idx] = 0.0
+        defaults[hand] = profile
+    return defaults
+
+
 class MotorPositionTestNode(Node):
     def __init__(
         self,
@@ -986,7 +1046,7 @@ class MotorPositionTestNode(Node):
         cmd_topic: str,
         feedback_topic: str,
         defaults_hand,
-        assist_mode: str = ASSIST_MODE_RELEASE,
+        assist_mode: str = ASSIST_MODE_OFF,
         motor_feedback_csv_path: str = "auto",
     ):
         super().__init__(f"motor_position_test_{hand}")
@@ -1007,6 +1067,9 @@ class MotorPositionTestNode(Node):
         self.watchdog_fallback_enabled = True
         self.active_motor_id = None
         self.command_matrix = self._build_idle_tension_matrix()
+        self._zero_feedback: ZeroFeedback | None = None
+        self._command_sent = False
+        self._integrate_single_position = False
         self.motor_feedback_csv_path_template = str(motor_feedback_csv_path)
         self.motor_feedback_csv_path = ""
         self.motor_feedback_frame_idx = 0
@@ -1016,7 +1079,9 @@ class MotorPositionTestNode(Node):
         self._motor_feedback_has_opened = False
 
         self.publisher = self.create_publisher(YHandMsg, self.cmd_topic, 10)
-        self.subscription = self.create_subscription(YHandMsg, self.feedback_topic, self._feedback_cb, 10)
+        self.subscription = self.create_subscription(
+            YHandMsg, self.feedback_topic, self._feedback_cb, qos_profile_sensor_data
+        )
         self.publish_timer = self.create_timer(CONTROL_PERIOD_SEC, self._publish_cb)
         self.watchdog_timer = self.create_timer(0.1, self._watchdog_cb)
 
@@ -1115,6 +1180,10 @@ class MotorPositionTestNode(Node):
             matrix.append([0.0, 0.0, float(self.defaults_hand["tor"][i]), 0.0, 0.0])
         return matrix
 
+    def _apply_antagonist_release_current(self, matrix, motor_id: int):
+        for antagonist_id in _get_antagonist_motors(self.hand, motor_id):
+            matrix[antagonist_id - 1][2] = ANTAGONIST_RELEASE_CURRENT_A
+
     def _build_all_zero_matrix(self):
         matrix = []
         for i in range(MOTOR_COUNT):
@@ -1148,10 +1217,42 @@ class MotorPositionTestNode(Node):
             self.feedback_received = True
             self.last_feedback_ts = now
             self.feedback_stale = False
+            if self._command_sent:
+                if self._zero_feedback is not None:
+                    self._update_absolute_zero_locked(motors)
+                elif self._integrate_single_position:
+                    self._update_single_position_integral_locked(motors)
+
+    def _update_single_position_integral_locked(self, motors):
+        idx = self.active_motor_id - 1
+        row = self.command_matrix[idx]
+        position = self.latest_feedback[idx].pos
+        if position is not None and motors[idx].error == 0:
+            error_limit = SINGLE_MOTOR_INTEGRAL_ERROR_LIMIT_DEG
+            error = max(-error_limit, min(error_limit, row[0] - position))
+            current = row[2] + self.defaults_hand["ki"][idx] * error
+            limit = SINGLE_MOTOR_INTEGRAL_LIMIT_A
+            row[2] = max(-limit, min(limit, current))
+            return
+        row[2] = 0.0
+
+    def _update_absolute_zero_locked(self, motors):
+        zero_feedback = self._zero_feedback
+        zero_feedback.record(
+            (fb.pos, getattr(motors[i], "error", None) if i < len(motors) else None)
+            for i, fb in enumerate(self.latest_feedback)
+        )
+        for row, (position, error) in zip(self.command_matrix, zero_feedback.motors, strict=True):
+            if position is None or error != 0:
+                row[2] = 0.0
+                continue
+            current = row[2] - POSITION_INTEGRAL_GAIN * position
+            row[2] = max(-ZERO_INTEGRAL_LIMIT, min(ZERO_INTEGRAL_LIMIT, current))
 
     def _publish_cb(self):
         with self._lock:
             matrix = [row[:] for row in self.command_matrix]
+            self._command_sent = True
 
         msg = YHandMsg()
         msg.motors = [
@@ -1171,17 +1272,12 @@ class MotorPositionTestNode(Node):
 
     def _watchdog_cb(self):
         with self._lock:
-            if not self.watchdog_fallback_enabled:
+            if not self.watchdog_fallback_enabled or not self.feedback_received:
                 return
-        with self._lock:
-            if not self.feedback_received:
-                return
-            age = time.monotonic() - self.last_feedback_ts
-        if age > FEEDBACK_STALE_SEC:
-            with self._lock:
+            if time.monotonic() - self.last_feedback_ts > FEEDBACK_STALE_SEC:
                 self.feedback_stale = True
-                self.command_matrix = self._build_idle_tension_matrix()
-                self.active_motor_id = None
+                if any(any(row) for row in self.command_matrix):
+                    self._set_command_matrix_locked(self._build_idle_tension_matrix())
 
     def wait_feedback(self, timeout_sec: float):
         start = time.monotonic()
@@ -1243,10 +1339,11 @@ class MotorPositionTestNode(Node):
         )
 
     def get_motor_feedback(self, motor_id: int):
-        idx = motor_id - 1
+        return self.get_motor_feedback_sample(motor_id)[0]
+
+    def get_motor_feedback_sample(self, motor_id: int):
         with self._lock:
-            fb = self.latest_feedback[idx]
-            return MotorFeedback(pos=fb.pos, vel=fb.vel, tor=fb.tor, kp=fb.kp, kd=fb.kd)
+            return copy.copy(self.latest_feedback[motor_id - 1]), self.last_feedback_ts
 
     def all_motor_positions(self):
         with self._lock:
@@ -1259,15 +1356,32 @@ class MotorPositionTestNode(Node):
                 for fb in self.latest_feedback
             ]
 
+    def _set_command_matrix_locked(self, matrix, active_motor_id=None):
+        self.command_matrix = matrix
+        self.active_motor_id = active_motor_id
+        self._zero_feedback = None
+        self._command_sent = False
+        self._integrate_single_position = False
+
+    def start_absolute_zero(self):
+        with self._lock:
+            if self._zero_feedback is None:
+                self._set_command_matrix_locked([[0.0, 0.0, 0.0, ZERO_KP, ZERO_KD] for _ in range(MOTOR_COUNT)])
+                self._zero_feedback = ZeroFeedback()
+            else:
+                self._zero_feedback.consecutive = 0
+
+    def absolute_zero_feedback(self):
+        with self._lock:
+            return copy.copy(self._zero_feedback)
+
     def set_idle_tension(self):
         with self._lock:
-            self.command_matrix = self._build_idle_tension_matrix()
-            self.active_motor_id = None
+            self._set_command_matrix_locked(self._build_idle_tension_matrix())
 
     def set_all_zero_output(self):
         with self._lock:
-            self.command_matrix = [[0.0, 0.0, 0.0, 0.0, 0.0] for _ in range(MOTOR_COUNT)]
-            self.active_motor_id = None
+            self._set_command_matrix_locked([[0.0] * 5 for _ in range(MOTOR_COUNT)])
 
     def set_idle_tension_with_overrides(self, overrides: dict[int, list]):
         with self._lock:
@@ -1283,40 +1397,38 @@ class MotorPositionTestNode(Node):
                     float(row[3]),
                     float(row[4]),
                 ]
-            self.command_matrix = matrix
-            self.active_motor_id = None
+            self._set_command_matrix_locked(matrix)
 
     def set_watchdog_fallback_enabled(self, enabled: bool):
         with self._lock:
             self.watchdog_fallback_enabled = bool(enabled)
 
-    def set_single_motor_position_target(self, motor_id: int, target_pos: float):
+    def set_single_motor_position_target(
+        self, motor_id: int, target_pos: float, overrides: dict[int, list] | None = None, *, moving: bool = False
+    ):
         idx = motor_id - 1
         with self._lock:
-            matrix = self._build_idle_tension_matrix()
-            row = [
-                float(target_pos),
-                float(self.defaults_hand["vel"][idx]),
-                float(self.defaults_hand["tor_active"][idx]),
-                float(self.defaults_hand["kp"][idx]),
-                float(self.defaults_hand["kd"][idx]),
-            ]
-            matrix[idx] = row
-            self.command_matrix = matrix
-            self.active_motor_id = motor_id
-
-    def set_single_motor_position_target_with_overrides(self, motor_id: int, target_pos: float, overrides: dict[int, list]):
-        idx = motor_id - 1
-        with self._lock:
-            matrix = self._build_idle_tension_matrix()
+            active_tor = 0.0
+            if moving:
+                matrix = [[0.0] * 5 for _ in range(MOTOR_COUNT)]
+                self._apply_antagonist_release_current(matrix, motor_id)
+                overrides = None
+            else:
+                matrix = [[0.0, 0.0, ARRIVED_TENSION_CURRENT_A, 0.0, 0.0] for _ in range(MOTOR_COUNT)]
+                if (
+                    self._integrate_single_position
+                    and self.active_motor_id == motor_id
+                    and self.command_matrix[idx][0] == target_pos
+                ):
+                    active_tor = self.command_matrix[idx][2]
             matrix[idx] = [
                 float(target_pos),
                 float(self.defaults_hand["vel"][idx]),
-                float(self.defaults_hand["tor_active"][idx]),
+                active_tor,
                 float(self.defaults_hand["kp"][idx]),
                 float(self.defaults_hand["kd"][idx]),
             ]
-            for override_motor_id, row in overrides.items():
+            for override_motor_id, row in (overrides or {}).items():
                 if override_motor_id < 1 or override_motor_id > MOTOR_COUNT:
                     continue
                 ridx = override_motor_id - 1
@@ -1327,13 +1439,12 @@ class MotorPositionTestNode(Node):
                     float(row[3]),
                     float(row[4]),
                 ]
-            self.command_matrix = matrix
-            self.active_motor_id = motor_id
+            self._set_command_matrix_locked(matrix, motor_id)
+            self._integrate_single_position = moving
 
     def set_all_zero_control(self):
         with self._lock:
-            self.command_matrix = self._build_all_zero_matrix()
-            self.active_motor_id = None
+            self._set_command_matrix_locked(self._build_all_zero_matrix())
 
     def set_all_zero_control_with_overrides(self, overrides: dict[int, list]):
         with self._lock:
@@ -1349,8 +1460,7 @@ class MotorPositionTestNode(Node):
                     float(row[3]),
                     float(row[4]),
                 ]
-            self.command_matrix = matrix
-            self.active_motor_id = None
+            self._set_command_matrix_locked(matrix)
 
     def set_all_motor_position_targets(self, target_positions):
         if len(target_positions) != MOTOR_COUNT:
@@ -1370,8 +1480,7 @@ class MotorPositionTestNode(Node):
                 ]
             )
         with self._lock:
-            self.command_matrix = matrix
-            self.active_motor_id = None
+            self._set_command_matrix_locked(matrix)
 
 
 def _print_feedback(prefix: str, motor_id: int, fb: MotorFeedback):
@@ -1522,9 +1631,7 @@ def _is_assist_motor(hand: str, motor_id: int) -> bool:
     return False
 
 
-def _get_assist_target_motors(hand: str, motor_id: int, assist_mode: str):
-    if assist_mode != ASSIST_MODE_RELEASE:
-        return []
+def _get_antagonist_motors(hand: str, motor_id: int):
     hand_map = EXTENSOR_ASSIST_MAP.get(hand, {})
     if motor_id in hand_map:
         return list(hand_map[motor_id].get("flexors", []))
@@ -1911,7 +2018,7 @@ def _apply_antagonist_assist_phase(node: MotorPositionTestNode, motor_id: int, t
     if node.assist_mode != ASSIST_MODE_RELEASE:
         return {"applied": False, "targets": []}
 
-    primary_target_ids = _get_assist_target_motors(node.hand, motor_id, node.assist_mode)
+    primary_target_ids = _get_antagonist_motors(node.hand, motor_id)
     raw_sway_pair_target_ids = _get_sway_pair_targets_for_extflex(node.hand, motor_id)
     thumb_cross_target_ids = _get_thumb_opposition_sway_cross_targets(node.hand, motor_id)
     if (not primary_target_ids) and (not raw_sway_pair_target_ids) and (not thumb_cross_target_ids):
@@ -2074,7 +2181,7 @@ def _apply_antagonist_assist_phase(node: MotorPositionTestNode, motor_id: int, t
                     tid: [0.0, 0.0, float(release_tor_plan.get(tid, default_release_tor)), 0.0, 0.0]
                     for tid in active_ids
                 }
-                node.set_single_motor_position_target_with_overrides(motor_id, target_pos, overrides)
+                node.set_single_motor_position_target(motor_id, target_pos, overrides=overrides)
             else:
                 node.set_single_motor_position_target(motor_id, target_pos)
             last_active_ids = active_ids
@@ -2147,10 +2254,9 @@ def _prompt_target_position():
             return "record_once", None
         if raw in ("z", "zero"):
             return "zero", None
-        try:
-            pos = float(raw)
-        except ValueError:
-            print("输入无效，请输入数字位置或 m / h / replay / r / z / x")
+        pos = _to_float_or_none(raw)
+        if pos is None:
+            print("输入无效，请输入有限的数字位置或 m / h / replay / r / z / x")
             continue
         return "target", pos
 
@@ -2380,86 +2486,41 @@ def _execute_replay_snapshot(
 
 
 def _execute_single_motor_to_target(node: MotorPositionTestNode, motor_id: int, target_pos: float):
-    node.set_watchdog_fallback_enabled(False)
-    assist_info = _apply_antagonist_assist_phase(node, motor_id, target_pos)
-    if assist_info.get("feedback_stale"):
-        post_fb = node.get_motor_feedback(motor_id)
-        node.set_watchdog_fallback_enabled(True)
-        node.set_idle_tension()
-        return {
-            "result": "feedback_stale",
-            "target_pos": float(target_pos),
-            "position_error": None,
-            "elapsed_sec": 0.0,
-            "assist_mode": node.assist_mode,
-            "assist_applied": bool(assist_info.get("applied", False)),
-            "assist_targets": assist_info.get("targets", []),
-            "assist_primary_targets": assist_info.get("primary_targets", []),
-            "assist_sway_pair_targets": assist_info.get("sway_pair_targets", []),
-            "assist_release_sec": float(assist_info.get("release_sec", 0.0)),
-            "assist_primary_release_sec": float(assist_info.get("primary_release_sec", 0.0)),
-            "assist_sway_pair_release_sec": float(assist_info.get("sway_pair_release_sec", 0.0)),
-            "assist_sway_pair_release_plan_sec": assist_info.get("sway_pair_release_plan_sec", {}),
-            "assist_primary_start_delay_sec": float(assist_info.get("primary_start_delay_sec", 0.0)),
-            "assist_delta_deg": float(assist_info.get("delta_deg", 0.0)),
-            "assist_delta_release_profile": str(assist_info.get("delta_release_profile", "small")),
-            "assist_delta_release_scale": float(assist_info.get("delta_release_scale", 1.0)),
-            "assist_release_tor": float(assist_info.get("release_tor", ASSIST_RELEASE_TOR)),
-            "post_fb": post_fb,
-        }
-
-    # Keep active target latched for arrival checking after assist phase.
-    node.set_single_motor_position_target(motor_id, target_pos)
     start = time.monotonic()
-    ok_frames = 0
-    result = "timeout"
+    result = "feedback_stale"
     last_err = None
-
+    node.set_watchdog_fallback_enabled(False)
     try:
-        while True:
-            if node.is_feedback_stale():
-                result = "feedback_stale"
-                break
-            fb = node.get_motor_feedback(motor_id)
-            if fb.pos is not None:
-                last_err = abs(float(fb.pos) - float(target_pos))
-                if last_err <= ARRIVAL_POS_TOL:
-                    ok_frames += 1
-                else:
-                    ok_frames = 0
-                if ok_frames >= ARRIVAL_CONFIRM_FRAMES:
-                    result = "reached"
+        if not node.is_feedback_stale():
+            node.set_single_motor_position_target(motor_id, target_pos, moving=True)
+            _, last_sample_time = node.get_motor_feedback_sample(motor_id)
+            ok_frames = 0
+            result = "timeout"
+            while time.monotonic() - start < SINGLE_MOTOR_TIMEOUT_SEC:
+                if node.is_feedback_stale():
+                    result = "feedback_stale"
                     break
-            if (time.monotonic() - start) >= SINGLE_MOTOR_TIMEOUT_SEC:
-                result = "timeout"
-                break
-            time.sleep(CONTROL_PERIOD_SEC)
+                fb, sample_time = node.get_motor_feedback_sample(motor_id)
+                if sample_time > last_sample_time:
+                    last_sample_time = sample_time
+                    last_err = abs(fb.pos - target_pos) if fb.pos is not None else None
+                    ok_frames = ok_frames + 1 if last_err is not None and last_err <= ARRIVAL_POS_TOL else 0
+                    if ok_frames >= ARRIVAL_CONFIRM_FRAMES:
+                        node.set_single_motor_position_target(motor_id, target_pos)
+                        result = "reached"
+                        break
+                time.sleep(CONTROL_PERIOD_SEC)
     finally:
+        if result != "reached":
+            node.set_all_zero_output()
         node.set_watchdog_fallback_enabled(True)
 
-    post_fb = node.get_motor_feedback(motor_id)
-    if result != "reached":
-        node.set_idle_tension()
     return {
         "result": result,
         "target_pos": float(target_pos),
         "position_error": last_err,
         "elapsed_sec": float(time.monotonic() - start),
-        "assist_mode": node.assist_mode,
-        "assist_applied": bool(assist_info.get("applied", False)),
-        "assist_targets": assist_info.get("targets", []),
-        "assist_primary_targets": assist_info.get("primary_targets", []),
-        "assist_sway_pair_targets": assist_info.get("sway_pair_targets", []),
-        "assist_release_sec": float(assist_info.get("release_sec", 0.0)),
-        "assist_primary_release_sec": float(assist_info.get("primary_release_sec", 0.0)),
-        "assist_sway_pair_release_sec": float(assist_info.get("sway_pair_release_sec", 0.0)),
-        "assist_sway_pair_release_plan_sec": assist_info.get("sway_pair_release_plan_sec", {}),
-        "assist_primary_start_delay_sec": float(assist_info.get("primary_start_delay_sec", 0.0)),
-        "assist_delta_deg": float(assist_info.get("delta_deg", 0.0)),
-        "assist_delta_release_profile": str(assist_info.get("delta_release_profile", "small")),
-        "assist_delta_release_scale": float(assist_info.get("delta_release_scale", 1.0)),
-        "assist_release_tor": float(assist_info.get("release_tor", ASSIST_RELEASE_TOR)),
-        "post_fb": post_fb,
+        "post_fb": node.get_motor_feedback(motor_id),
     }
 
 
@@ -2506,7 +2567,7 @@ def _zero_flexor_motor_ids(hand: str):
     )
 
 
-def _execute_all_zero(node: MotorPositionTestNode):
+def _execute_replay_all_zero(node: MotorPositionTestNode):
     print("开始全部回0...")
     zero_start = None
     ok_frames = 0
@@ -2596,12 +2657,54 @@ def _execute_all_zero(node: MotorPositionTestNode):
     return result
 
 
+def _execute_all_zero(node: MotorPositionTestNode, *, release=False):
+    print("开始全部回0，目标绝对位置 0°。")
+    start = time.monotonic()
+    result = "feedback_stale"
+    feedback = ZeroFeedback()
+    node.set_watchdog_fallback_enabled(False)
+    try:
+        if rclpy.ok() and not node.is_feedback_stale():
+            node.start_absolute_zero()
+            while rclpy.ok():
+                feedback = node.absolute_zero_feedback()
+                if node.is_feedback_stale():
+                    break
+                if feedback.consecutive >= ZERO_CONFIRMATIONS:
+                    result = "reached"
+                    break
+                if time.monotonic() - start >= ZERO_TIMEOUT_SEC:
+                    result = "timeout"
+                    break
+                time.sleep(CONTROL_PERIOD_SEC)
+
+    finally:
+        elapsed = time.monotonic() - start
+        if release or result != "reached":
+            node.set_all_zero_output()
+        try:
+            if release and rclpy.ok():
+                time.sleep(ZERO_OUTPUT_RELEASE_SEC)
+        finally:
+            node.set_watchdog_fallback_enabled(True)
+
+    if result == "reached":
+        action = "已释放输出，即将退出。" if release else "继续保持 0°。"
+        print(f"绝对零位确认通过（{elapsed:.2f}s），{action}")
+    elif result == "timeout":
+        print(f"绝对零位确认超时（{elapsed:.2f}s），已释放输出。")
+    else:
+        print("全部回0中断：反馈已超时或 ROS 已关闭，已清除位置控制指令。")
+    print(feedback.report())
+    return result
+
+
 def _print_motor_defaults(hand_defaults, motor_id: int):
     idx = motor_id - 1
     print(
         f"默认参数 motor={motor_id}: "
         f"vel={float(hand_defaults['vel'][idx])}, "
-        f"tor_active={float(hand_defaults['tor_active'][idx])}, "
+        f"tor_active(ki)={float(hand_defaults['ki'][idx])} A/°/帧, "
         f"kp={float(hand_defaults['kp'][idx])}, kd={float(hand_defaults['kd'][idx])}, "
         f"idle_tor={float(hand_defaults['tor'][idx])}"
     )
@@ -2616,7 +2719,7 @@ def _run_interactive_loop(
     while True:
         act, motor_id = _prompt_select_motor()
         if act == "quit":
-            _execute_all_zero(node)
+            _execute_all_zero(node, release=True)
             return
         if act == "snapshot":
             _append_snapshot_and_report(
@@ -2650,7 +2753,7 @@ def _run_interactive_loop(
 
             cmd_act, target_pos = _prompt_target_position()
             if cmd_act == "quit":
-                _execute_all_zero(node)
+                _execute_all_zero(node, release=True)
                 return
             if cmd_act == "zero":
                 _execute_all_zero(node)
@@ -2685,27 +2788,11 @@ def _run_interactive_loop(
                 f"执行结果: {result['result']}, target_pos={result['target_pos']}, "
                 f"position_error={result['position_error']}, elapsed={result['elapsed_sec']:.2f}s"
             )
-            if result.get("assist_applied"):
-                print(
-                    f"对抗肌辅助已执行: mode={_assist_mode_label(result.get('assist_mode', ASSIST_MODE_OFF))}, "
-                    f"targets={result.get('assist_targets', [])}, "
-                    f"release_sec={result.get('assist_release_sec', 0.0):.3f}, "
-                    f"primary_targets={result.get('assist_primary_targets', [])}, "
-                    f"sway_pair_targets={result.get('assist_sway_pair_targets', [])}, "
-                    f"primary_release_sec={result.get('assist_primary_release_sec', 0.0):.3f}, "
-                    f"primary_start_delay_sec={result.get('assist_primary_start_delay_sec', 0.0):.3f}, "
-                    f"sway_pair_release_sec={result.get('assist_sway_pair_release_sec', 0.0):.3f}, "
-                    f"sway_pair_release_plan_sec={result.get('assist_sway_pair_release_plan_sec', {})}, "
-                    f"delta_deg={result.get('assist_delta_deg', 0.0):.3f}, "
-                    f"delta_profile={result.get('assist_delta_release_profile', 'small')}, "
-                    f"delta_scale={result.get('assist_delta_release_scale', 1.0):.3f}, "
-                    f"release_tor={result.get('assist_release_tor', ASSIST_RELEASE_TOR):.3f}"
-                )
             _print_feedback("停止后反馈", motor_id, post_fb)
             if result["result"] == "reached":
-                print("该电机保持当前目标位置，其他电机维持默认张紧。")
+                print(f"主动电机保持目标位置，全部非主动电机以 {ARRIVED_TENSION_CURRENT_A:.2f} A 张紧。")
             else:
-                print("未到位或异常，已切回默认张紧。")
+                print("未到位或异常，已将全部输出置 0。")
 
 
 def _hold_zero_output_until_exit(node: MotorPositionTestNode):
@@ -2718,7 +2805,7 @@ def _hold_zero_output_until_exit(node: MotorPositionTestNode):
 def _parse_args():
     parser = argparse.ArgumentParser(description="Single-motor position test for Y-hand.")
     parser.add_argument("--hand", required=True, choices=["left", "right"])
-    parser.add_argument("--defaults-path", default="")
+    parser.add_argument("--defaults-path", default="", help="Path to motor defaults (JSON or legacy Python).")
     parser.add_argument("--snapshot-path", default="")
     parser.add_argument("--cmd-topic", default="")
     parser.add_argument("--feedback-topic", default="")
@@ -2732,8 +2819,8 @@ def _parse_args():
     )
     parser.add_argument(
         "--assist-enable",
-        default="true",
-        help="Enable antagonist assist mapping (true/false). Default: true",
+        default="false",
+        help="Legacy compatibility argument for single-motor tests.",
     )
     return parser.parse_args()
 
@@ -2750,14 +2837,21 @@ def _spin_node(node: Node):
 def main():
     args = _parse_args()
     script_dir = Path(__file__).resolve().parent
-    defaults_path = Path(args.defaults_path) if args.defaults_path else (script_dir / "muscle_adjustment_defaults.py")
+    defaults_path = (
+        Path(args.defaults_path)
+        if args.defaults_path
+        else script_dir.parent / "config" / "motor_parameter.json"
+    )
     snapshot_path = (
         Path(args.snapshot_path).expanduser()
         if args.snapshot_path
         else (script_dir / f"motor_position_snapshots_{args.hand}.json")
     )
     snapshot_history = _load_snapshot_history(snapshot_path)
-    defaults = _load_defaults_from_py(defaults_path)
+    if defaults_path.suffix.lower() == ".json":
+        defaults = _load_defaults_from_json(defaults_path)
+    else:
+        defaults = _load_defaults_from_py(defaults_path)
     defaults_hand = defaults[args.hand]
     tor_safety_violations = _validate_tor_pair_safety(args.hand, defaults_hand["tor"])
     runtime_defaults_hand = defaults_hand
@@ -2765,22 +2859,22 @@ def main():
         runtime_defaults_hand = copy.deepcopy(defaults_hand)
         runtime_defaults_hand["tor"] = [0.0] * MOTOR_COUNT
         runtime_defaults_hand["tor_active"] = [0.0] * MOTOR_COUNT
+        runtime_defaults_hand["ki"] = [0.0] * MOTOR_COUNT
 
     cmd_topic, feedback_topic = _topics_for_hand(args.hand)
     if args.cmd_topic:
         cmd_topic = args.cmd_topic
     if args.feedback_topic:
         feedback_topic = args.feedback_topic
-    assist_enabled = _parse_bool_text(args.assist_enable, default=True)
-    assist_mode = ASSIST_MODE_RELEASE if assist_enabled else ASSIST_MODE_OFF
+    if _parse_bool_text(args.assist_enable, default=False):
+        print("旧版辅助开关仅供兼容，单电机控制使用固定拮抗放线电流。")
 
-    rclpy.init()
+    rclpy.init(signal_handler_options=SignalHandlerOptions.SIGTERM)
     node = MotorPositionTestNode(
         hand=args.hand,
         cmd_topic=cmd_topic,
         feedback_topic=feedback_topic,
         defaults_hand=runtime_defaults_hand,
-        assist_mode=assist_mode,
         motor_feedback_csv_path=str(args.motor_feedback_csv_path),
     )
     if tor_safety_violations:
@@ -2815,15 +2909,18 @@ def main():
 
         print(
             f"进入电机位置测试模式 hand={args.hand}, cmd_topic={cmd_topic}, feedback_topic={feedback_topic}\n"
-            "规则: 只输入主动电机目标位置pos；主动电机其余4维使用 defaults(vel/tor_active/kp/kd)\n"
-            "非主动电机: 纯默认张紧 [0,0,tor,0,0]\n"
+            f"电机参数配置: {defaults_path}\n"
+            "规则: 输入主动电机目标位置 pos，vel/kp/kd 使用配置值，前馈从 0 A 按 tor_active(ki) 积分\n"
+            f"运动期间: 直接拮抗电机以 {ANTAGONIST_RELEASE_CURRENT_A:+.2f} A 放线，其余非主动电机为 0 A\n"
+            f"到位后: 全部非主动电机以 {ARRIVED_TENSION_CURRENT_A:.2f} A 张紧\n"
             f"快照文件: {snapshot_path} (已加载 {len(snapshot_history)} 条)\n"
             "快照: 仅在输入 h 时记录并落盘；输入 replay 可按索引回放\n"
             "状态CSV: 每次输入 r 记录一条当前28电机反馈状态\n"
-            f"对抗肌辅助: {_assist_mode_label(assist_mode)}\n"
-            f"到位判定: |error|<={ARRIVAL_POS_TOL} 且连续 {ARRIVAL_CONFIRM_FRAMES} 帧, "
-            f"单电机超时 {SINGLE_MOTOR_TIMEOUT_SEC}s, 全部回0超时 {RETURN_ZERO_TIMEOUT_SEC}s, "
+            f"单电机到位判定: |error|<={ARRIVAL_POS_TOL} 且连续 {ARRIVAL_CONFIRM_FRAMES} 次新反馈检查, "
+            f"单电机超时 {SINGLE_MOTOR_TIMEOUT_SEC}s, "
             f"快照回放超时 {REPLAY_SNAPSHOT_TIMEOUT_SEC}s"
+            f"\n全部回0: 28 路 |pos|<={ZERO_TOLERANCE_DEG:g}° 且 error=0，"
+            f"连续 {ZERO_CONFIRMATIONS} 帧，超时 {ZERO_TIMEOUT_SEC:g}s"
         )
         _run_interactive_loop(
             node,
@@ -2832,8 +2929,9 @@ def main():
             snapshot_path=snapshot_path,
         )
     except KeyboardInterrupt:
-        print("收到 Ctrl+C，执行全部回0后退出。")
-        _execute_all_zero(node)
+        if not tor_safety_violations:
+            print("收到 Ctrl+C，执行全部回0后退出。")
+            _execute_all_zero(node, release=True)
     finally:
         node.close_motor_feedback_csv()
         node.destroy_node()

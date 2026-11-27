@@ -221,7 +221,7 @@ def _execute_all_zero_fast(node: mpt.MotorPositionTestNode):
         mpt.ZERO_FLEXOR_RELEASE_SEC = float(FAST_ZERO_FLEXOR_RELEASE_SEC)
         mpt.ARRIVAL_CONFIRM_FRAMES = int(FAST_ZERO_ARRIVAL_CONFIRM_FRAMES)
         mpt.RETURN_ZERO_TIMEOUT_SEC = float(FAST_ZERO_TIMEOUT_SEC)
-        return mpt._execute_all_zero(node)
+        return mpt._execute_replay_all_zero(node)
     finally:
         (
             mpt.ZERO_SWAY_RELEASE_SEC,

@@ -1,3 +1,7 @@
+# ament probes pytest from the build directory, where it cannot find pytest.ini.
+set(_saved_pytest_addopts "$ENV{PYTEST_ADDOPTS}")
+set(ENV{PYTEST_ADDOPTS} "${_saved_pytest_addopts} -c \"${CMAKE_CURRENT_SOURCE_DIR}/pytest.ini\"")
+
 # Keep test registration beside the tests with per-test timeouts and env.
 function(add_mapping_pytest name timeout)
   ament_add_pytest_test(${name}
@@ -35,3 +39,5 @@ add_mapping_pytest(left_thumb_motor_to_q_estimator 30)
 add_mapping_pytest(left_hand_motor_to_q_estimator 30)
 add_mapping_pytest(motor_to_q_logging 30 "MPLCONFIGDIR=/tmp/yhand_inverse_logging_tests")
 add_mapping_pytest(motor_to_q_mlp 60 "MPLCONFIGDIR=/tmp/yhand_inverse_mlp_tests")
+
+set(ENV{PYTEST_ADDOPTS} "${_saved_pytest_addopts}")

@@ -1,12 +1,15 @@
 import json
+import math
 import shutil
 from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, Shutdown, TimerAction
 from launch.substitutions import LaunchConfiguration
+from launch_ros.substitutions import ExecutableInPackage
 
 CONTROL_SCRIPT_START_DELAY_SEC = 1.5
+MOTOR_COUNT = 28
 
 
 def _load_yhand_dev_config(config_var_name: str) -> str:
@@ -44,29 +47,34 @@ def _launch_setup(context):
     assist_enable = LaunchConfiguration("assist_enable").perform(context).strip().lower()
     info = _hand_runtime_info(hand)
 
-    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
-    test_script = scripts_dir / "motor_position_test.py"
-    defaults_file = scripts_dir / "muscle_adjustment_defaults.py"
+    package_dir = Path(__file__).resolve().parent.parent
+    test_script = package_dir / "scripts" / "motor_position_test.py"
+    defaults_file = package_dir / "config" / "motor_parameter.json"
 
     for required_path, desc in (
         (test_script, "motor_position_test.py"),
-        (defaults_file, "muscle_adjustment_defaults.py"),
+        (defaults_file, "motor_parameter.json"),
     ):
         if not required_path.exists():
             raise FileNotFoundError(f"{desc} not found: {required_path}")
 
+    motor_parameters = json.loads(defaults_file.read_text(encoding="utf-8"))
+    current_limit = motor_parameters.get("max_current_limit_a") if isinstance(motor_parameters, dict) else None
+    if type(current_limit) not in (int, float) or not math.isfinite(current_limit) or current_limit <= 0:
+        raise ValueError(f"{defaults_file}: max_current_limit_a must be a finite positive number")
+    current_limits = json.dumps([float(current_limit)] * MOTOR_COUNT)
     dev_config = _load_yhand_dev_config(info["config_var"])
 
     driver_process = ExecuteProcess(
         cmd=[
-            "ros2",
-            "run",
-            "devices_pkg",
-            "Y_Hand_Node",
+            ExecutableInPackage(package="devices_pkg", executable="Y_Hand_Node"),
             info["driver_node_name"],
             info["feedback_topic"],
             info["command_topic"],
             dev_config,
+            "--ros-args",
+            "-p",
+            f"max_current_limit:={current_limits}",
         ],
         name=info["driver_node_name"],
         output="screen",
@@ -114,7 +122,7 @@ def _launch_setup(context):
         LogInfo(
             msg=(
                 f"[motor_position_test_launch] target_hand={hand}, "
-                f"driver_node={info['driver_node_name']}, assist_enable={assist_enable}"
+                f"driver_node={info['driver_node_name']}"
             )
         ),
         driver_process,
@@ -132,8 +140,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "assist_enable",
-                default_value="true",
-                description="Enable antagonist assist in motor_position_test.py: true/false",
+                default_value="false",
+                description="Legacy compatibility argument for single-motor tests.",
             ),
             OpaqueFunction(function=_launch_setup),
         ]
